@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { ASSETS, COURSE_L1, COURSE_L2, CURRENCIES, type Currency } from '@/lib/catalog';
 import { basketIndex } from '@/lib/backtest';
 import { homeCurrency } from '@/lib/decide';
-import { fmtWeek, LAST_WEEK, MARKET_SOURCE, weekDate } from '@/lib/market';
+import { fmtWeek, LAST_WEEK, marketSource, weekDate } from '@/lib/market';
 import { COUNTRIES } from '@/lib/packs';
 import { valueSeries, type Txn } from '@/lib/portfolio';
 import { getRates } from '@/lib/fx';
@@ -184,7 +184,7 @@ export function Home() {
 
         <Activity txns={s.txns} />
         <button className="btn secondary" style={{ marginTop: 6 }} onClick={() => go('withdraw')}>Move money out</button>
-        <p className="tiny muted" style={{ marginTop: 10 }}>Real prices ({MARKET_SOURCE}) replayed from a year ago. Not covered by {depositScheme(pack)}.</p>
+        <p className="tiny muted" style={{ marginTop: 10 }}>Real prices ({marketSource()}) replayed from a year ago. Not covered by {depositScheme(pack)}.</p>
       </div>
 
       {sheet && (

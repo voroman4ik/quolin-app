@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { ASSETS, ASSET_IDS, BASKETS, CATEGORY_LABEL, pricePence, worstCase, type AssetId } from '@/lib/catalog';
-import { backtest, type Metrics } from '@/lib/backtest';
+import { useMemo, useState, useSyncExternalStore } from 'react';
+import { ASSETS, ASSET_IDS, BASKETS, CATEGORY_LABEL, pricePence, worstCase, worstFallBps, worstFallWhen, historySince, type AssetId } from '@/lib/catalog';
 import { checkLine, resolveBasket, type Funding } from '@/lib/decide';
 import type { Determination, Pack } from '@/lib/engine/types';
-import { COIN_DATA, fmtWeek, LAST_WEEK, MARKET_SOURCE, priceAt, yearChangePct } from '@/lib/market';
+import { COIN_DATA, fmtDate, fmtWeek, LAST_WEEK, marketSource, priceAt, yearChangePct } from '@/lib/market';
+import { getLivePrices, subscribeLivePrices } from '@/lib/live-prices';
+import { BacktestButton } from './Backtest';
 import { useDemo, type Line } from '../demo-state';
 import { Back, Coin, MoneyInput, Search, Spark, WeightBar, depositScheme, matches, useMoney } from '../ui';
 
@@ -28,71 +29,9 @@ function WorstCard({ lines }: { lines: Line[] }) {
       <p style={{ margin: '6px 0 4px', fontSize: 16 }}>
         {fmt(100_000)} would have fallen to <b>{fmt(worst * 100)}</b> at the bottom.
       </p>
-      <div className="tiny" style={{ color: '#b9c2c9' }}>Each asset’s worst peak-to-trough fall in its history, applied to these weights.</div>
-    </div>
-  );
-}
-
-function MetricGrid({ m }: { m: Metrics }) {
-  const cells: [string, string, string?][] = [
-    ['Biggest fall', pct(m.maxDrawdownPct), 'var(--block)'],
-    ['Annual return', pct(m.annualReturnPct), m.annualReturnPct >= 0 ? 'var(--allow)' : 'var(--block)'],
-    ['Volatility', `${m.volatilityPct.toFixed(0)}% a year`],
-    ['Worst week', pct(m.worstWeekPct)],
-    ['Best week', pct(m.bestWeekPct)],
-    ['Return per unit of risk', m.sharpe.toFixed(2)],
-  ];
-  return (
-    <div className="metrics">
-      {cells.map(([k, v, c]) => <div key={k}><span>{k}</span><b className="num" style={c ? { color: c } : undefined}>{v}</b></div>)}
-    </div>
-  );
-}
-
-/** A year of real prices, run through this basket and this plan. Worst first, return second. */
-export function BacktestCard({ lines, initialPence, weeklyPence }: { lines: Line[]; initialPence: number; weeklyPence: number }) {
-  const { fmt } = useMoney();
-  const bt = useMemo(() => backtest(lines, initialPence, weeklyPence), [lines, initialPence, weeklyPence]);
-  const rows: [string, Metrics, string][] = [
-    ['This basket', bt.basket.metrics, 'var(--bronze)'],
-    ['Bitcoin only', bt.bitcoin.metrics, 'var(--steel)'],
-    ['Cash (US T-bills)', bt.cash.metrics, 'var(--allow)'],
-  ];
-  const gain = Math.round((bt.plan.finalPence - bt.plan.paidInPence) / 100) * 100;
-  // One scale for all three lines, so cash looks as calm as it is.
-  const all = [...bt.cash.index, ...bt.bitcoin.index, ...bt.basket.index];
-  const range: [number, number] = [Math.min(...all), Math.max(...all)];
-  return (
-    <div className="card">
-      <div className="between"><div className="eyebrow">Backtest · last 12 months, real prices</div><span className="pill">not a forecast</span></div>
-      <div className="multi-spark">
-        <Spark values={bt.cash.index} stroke="var(--allow)" height={90} range={range} />
-        <Spark values={bt.bitcoin.index} stroke="var(--steel)" height={90} range={range} />
-        <Spark values={bt.basket.index} stroke="var(--bronze)" height={90} range={range} />
+      <div className="tiny" style={{ color: '#b9c2c9' }}>
+        {lines.map((l) => `${ASSETS[l.asset].name} −${Math.round(worstFallBps(l.asset) / 100)}% (${worstFallWhen(l.asset)})`).join(' · ')}. Each asset’s worst fall in its real price history, in pounds.
       </div>
-      <div className="between tiny muted"><span>{fmtWeek(0)}</span><span>{fmtWeek(LAST_WEEK)}</span></div>
-      <MetricGrid m={bt.basket.metrics} />
-      <table className="t compact" style={{ marginTop: 10 }}>
-        <thead><tr><th /><th>Return</th><th>Biggest fall</th><th>Volatility</th></tr></thead>
-        <tbody>
-          {rows.map(([name, m, c]) => (
-            <tr key={name} style={{ cursor: 'default' }}>
-              <td className="small"><i className="dot" style={{ background: c }} />{name}</td>
-              <td className="num small">{pct(m.annualReturnPct)}</td>
-              <td className="num small">{pct(m.maxDrawdownPct)}</td>
-              <td className="num small">{m.volatilityPct.toFixed(0)}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="card tint small" style={{ margin: '12px 0 0' }}>
-        Starting {fmtWeek(0)} with <b>{fmt(initialPence)}</b> and <b>{fmt(weeklyPence)} a week</b>: you’d have paid in{' '}
-        <b>{fmt(bt.plan.paidInPence)}</b>, worth <b>{fmt(bt.plan.finalPence)}</b> today ({gain >= 0 ? '+' : '−'}{fmt(Math.abs(gain))}).
-        {bt.plan.finalPence > 0 && weeklyPence > 0 && <> Buying weekly through the fall bought more at lower prices.</>}
-      </div>
-      <p className="tiny muted" style={{ margin: '8px 0 0' }}>
-        {MARKET_SOURCE}. Rebalanced every 4 weeks, no fees. One year is a short period and past performance is not a guide to the future.
-      </p>
     </div>
   );
 }
@@ -164,7 +103,8 @@ function AssetRow({ id }: { id: AssetId }) {
   const { price } = useMoney();
   const a = ASSETS[id];
   const st = pack ? status(pack, s.profile, id) : { ok: false, label: 'No rules here', detail: '' };
-  const ch = yearChangePct(id);
+  const live = useSyncExternalStore(subscribeLivePrices, getLivePrices, getLivePrices).prices[id];
+  const ch = live?.change24h ?? yearChangePct(id);
   return (
     <button className="asset-row" style={{ width: '100%', background: 'none', border: 0, borderTop: '1px solid var(--line)', textAlign: 'left' }}
       onClick={() => { set({ selectedAsset: id }); go('asset'); }}>
@@ -174,8 +114,8 @@ function AssetRow({ id }: { id: AssetId }) {
         <span className={`pill ${st.ok ? 'allow' : ''}`} style={{ marginTop: 4 }}>{st.ok ? '✓ Available' : st.label}</span>
       </span>
       <span style={{ textAlign: 'right' }}>
-        <span className="num small" style={{ fontWeight: 600 }}>{price(pricePence(id, s.week))}</span><br />
-        <span className="num tiny" style={{ color: ch >= 0 ? 'var(--allow)' : 'var(--block)' }}>{pct(ch, 0)} 1y</span>
+        <span className="num small" style={{ fontWeight: 600 }}>{price(live ? live.gbp * 100 : pricePence(id, LAST_WEEK))}</span><br />
+        <span className="num tiny" style={{ color: ch >= 0 ? 'var(--allow)' : 'var(--block)' }}>{pct(ch, live ? 1 : 0)} {live ? '24h' : '1y'}</span>
       </span>
     </button>
   );
@@ -202,7 +142,7 @@ export function Explore() {
         {list.map((id) => <AssetRow key={id} id={id} />)}
         {list.length === 0 && <p className="small muted" style={{ margin: 0 }}>Nothing matches.</p>}
       </div>
-      <p className="tiny muted">Prices: {MARKET_SOURCE}, shown at the demo date.</p>
+      <p className="tiny muted">{getLivePrices().at ? `Live prices: CoinGecko, ${new Date(getLivePrices().at!).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : `Prices: ${marketSource()}`}. Tap an asset for its history and a backtest.</p>
     </div>
   );
 }
@@ -214,7 +154,7 @@ export function AssetDetail() {
   const a = ASSETS[id];
   const st = pack ? status(pack, s.profile, id) : null;
   const series = Array.from({ length: LAST_WEEK + 1 }, (_, w) => priceAt(id, w));
-  const bt = useMemo(() => backtest([{ asset: id, weight_bps: 10_000 }], 100_000, 0), [id]);
+  const live = useSyncExternalStore(subscribeLivePrices, getLivePrices, getLivePrices).prices[id];
   const d = COIN_DATA[id];
   const canAdd = st?.ok && s.profile.knowledgeLevel >= 2 && pack?.assets[id].class !== 'stable';
 
@@ -226,8 +166,10 @@ export function AssetDetail() {
           <Coin asset={id} size={44} />
           <div><h2 className="h2" style={{ margin: 0 }}>{a.name}</h2><div className="small muted">{a.ticker}{a.rank ? ` · #${a.rank} by market value` : ` · ${CATEGORY_LABEL[a.category]}`}</div></div>
         </div>
-        <div className="big-num num" style={{ marginTop: 12 }}>{price(pricePence(id, s.week))}</div>
-        <div className="small muted">{fmtWeek(s.week)} · {pct(yearChangePct(id), 0)} over the year</div>
+        <div className="big-num num" style={{ marginTop: 12 }}>{price(live ? live.gbp * 100 : pricePence(id, LAST_WEEK))}</div>
+        <div className="small muted">
+          {live ? <>Live · {pct(live.change24h ?? 0)} today · </> : null}{pct(yearChangePct(id), 0)} over the last year
+        </div>
         <Spark values={series} stroke={a.colour} marks={[s.week]} />
 
         {st && (
@@ -246,15 +188,11 @@ export function AssetDetail() {
             <dt>Used by</dt><dd>{a.who_uses_it}</dd>
             <dt>Value</dt><dd>{a.value_from}</dd>
             <dt>Risks</dt><dd>{a.what_can_kill_it}</dd>
-            <dt>Worst</dt><dd>−{a.worst_fall_bps / 100}% ({a.worst_when})</dd>
+            <dt>Worst</dt><dd>−{(worstFallBps(a.id) / 100).toFixed(0)}% ({worstFallWhen(a.id)}){historySince(a.id) ? `, in data since ${fmtDate(historySince(a.id)!)}` : ''}</dd>
             {d?.below_peak_pct != null && <><dt>Now</dt><dd>{Math.abs(d.below_peak_pct)}% below its all-time high</dd></>}
           </dl>
         </div>
-        <div className="card">
-          <div className="eyebrow">Last 12 months</div>
-          <MetricGrid m={bt.basket.metrics} />
-          <p className="tiny muted" style={{ margin: '8px 0 0' }}>{fmt(100_000)} a year ago would be {fmt(bt.plan.finalPence)} today. Not a forecast.</p>
-        </div>
+        <BacktestButton name={a.name} lines={[{ asset: id, weight_bps: 10_000 }]} />
       </div>
       {canAdd && (
         <div className="phone-foot">
@@ -314,7 +252,7 @@ export function BasketDetail() {
         </div>
         <WorstCard lines={r.lines} />
         <AmountPicker />
-        <BacktestCard lines={r.lines} initialPence={s.initialPence} weeklyPence={s.weeklyPence} />
+        <BacktestButton name={basket.name} lines={r.lines} />
 
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 4 }}>What’s inside</div>
@@ -334,7 +272,7 @@ export function BasketDetail() {
                     <dt>Used by</dt><dd>{a.who_uses_it}</dd>
                     <dt>Value</dt><dd>{a.value_from}</dd>
                     <dt>Risks</dt><dd>{a.what_can_kill_it}</dd>
-                    <dt>Worst</dt><dd>−{a.worst_fall_bps / 100}% ({a.worst_when})</dd>
+                    <dt>Worst</dt><dd>−{(worstFallBps(a.id) / 100).toFixed(0)}% ({worstFallWhen(a.id)}){historySince(a.id) ? `, in data since ${fmtDate(historySince(a.id)!)}` : ''}</dd>
                   </dl>
                 )}
               </div>
@@ -423,7 +361,7 @@ export function Build() {
           </div>
         ))}
         {lines.length > 0 && <WeightBar lines={lines} />}
-        {ok && <><div style={{ marginTop: 12 }}><WorstCard lines={lines} /></div><AmountPicker /><BacktestCard lines={lines} initialPence={s.initialPence} weeklyPence={s.weeklyPence} /></>}
+        {ok && <><div style={{ marginTop: 12 }}><WorstCard lines={lines} /></div><AmountPicker /><BacktestButton name="my basket" lines={lines} /></>}
       </div>
       <div className="phone-foot">
         <button className="btn" disabled={!ok || s.initialPence + s.weeklyPence === 0} onClick={() => { set({ draft: { name: 'My basket', lines } }); go('plan'); }}>
@@ -493,7 +431,7 @@ export function PlanSetup() {
         {blocking.map((f) => (
           <div key={f.rule_id} className="verdict block small" style={{ padding: 12, marginTop: 12 }}><b>{f.reason.title}.</b> {f.reason.plain_english} <code className="mono muted">{f.rule_id}</code></div>
         ))}
-        <p className="tiny muted" style={{ marginTop: 12 }}>Sales only ever go back to the account you pay from. Prices: {MARKET_SOURCE}, at {fmtWeek(s.week)}.</p>
+        <p className="tiny muted" style={{ marginTop: 12 }}>Sales only ever go back to the account you pay from. Prices: {marketSource()}, at {fmtWeek(s.week)}.</p>
       </div>
       <div className="phone-foot">
         <button className="btn" disabled={blocking.length > 0 || firstAmount === 0} onClick={startPlan}>Start my plan</button>

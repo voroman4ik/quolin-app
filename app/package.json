@@ -8,7 +8,8 @@
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "market-data": "node scripts/fetch-market-data.mjs"
+    "market-data": "node scripts/fetch-market-data.mjs",
+    "history": "node scripts/fetch-history.mts"
   },
   "dependencies": {
     "next": "^16.4.0",

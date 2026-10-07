@@ -9,7 +9,8 @@ import {
 import type { Determination, Pack } from '@/lib/engine/types';
 import { getRates, subscribeFx, type Rates } from '@/lib/fx';
 import { activePack, packVersions, record, subscribe, type LedgerBody } from '@/lib/ledger';
-import { fmtWeek, type Shock } from '@/lib/market';
+import { fmtWeek, getHistory, subscribeHistory, type Shock } from '@/lib/market';
+import type { Period } from '@/lib/backtest';
 import type { Jurisdiction } from '@/lib/packs';
 import { buyLines, sellPro, summarise, valueAt, type Line, type Summary, type Txn } from '@/lib/portfolio';
 
@@ -18,7 +19,7 @@ export type { Line } from '@/lib/portfolio';
 export type Screen =
   | 'welcome' | 'factfind' | 'course' | 'result'
   | 'home' | 'baskets' | 'basket' | 'build' | 'plan' | 'asset' | 'explore'
-  | 'learn' | 'course2' | 'account' | 'withdraw';
+  | 'learn' | 'course2' | 'account' | 'withdraw' | 'backtest';
 
 export interface Plan {
   name: string;
@@ -70,6 +71,10 @@ export interface DemoState {
   knownAddresses: string[];
   beneficiary: string;
   toast: string | null;
+  /** What the backtest screen is testing, and where to go back to. */
+  backtest: { name: string; lines: Line[]; from: Screen } | null;
+  btPeriod: Period;
+  btCompare: string[];
 }
 
 export const INITIAL: DemoState = {
@@ -78,6 +83,7 @@ export const INITIAL: DemoState = {
   weeklyPence: 2500, initialPence: 20_000, funding: 'bank_transfer', acks: {},
   plan: null, coolingOffDone: false, heldBuyPence: 0, week: 0, shocks: [], txns: [], nextId: 1,
   limitReached: false, pendingSell: null, transfers: [], knownAddresses: [], beneficiary: '', toast: null,
+  backtest: null, btPeriod: '1Y', btCompare: ['SPX', 'GOLD', 'CASH'],
 };
 
 const STATE_KEY = 'quolin.demo.v2';
@@ -164,6 +170,8 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   // The bank can publish a pack update from the console tab; the app follows it.
   const versions = useSyncExternalStore(subscribe, () => JSON.stringify(packVersions()), () => '{}');
   const rates = useSyncExternalStore(subscribeFx, getRates, getRates);
+  // Live price history replaces the snapshot when it arrives; everything derived re-renders.
+  const history = useSyncExternalStore(subscribeHistory, getHistory, getHistory);
   const jurisdiction = jurisdictionOf(s.profile.country);
   const pack = useMemo(
     () => (jurisdiction && ready ? activePack(jurisdiction) : null),
@@ -171,7 +179,8 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     [jurisdiction, versions, ready],
   );
   const result = useMemo(() => decideOnboarding(s.profile, pack), [s.profile, pack]);
-  const portfolio = useMemo(() => summarise(s.txns, s.week, s.shocks), [s.txns, s.week, s.shocks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const portfolio = useMemo(() => summarise(s.txns, s.week, s.shocks), [s.txns, s.week, s.shocks, history]);
 
   const log = useCallback<Ctx['log']>((body) => {
     void record({ ...body, client_id: s.clientId, client_name: s.profile.name || 'You', source: 'app' });

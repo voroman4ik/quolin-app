@@ -7,7 +7,8 @@ npm install
 npm run dev          # http://localhost:3000  (bank console: /bank)
 npm test             # engine, seven packs, local rules, portfolio, backtest, currency, evidence chain
 npm run build
-npm run market-data  # refresh the CoinGecko snapshot (prices, logos) in lib/market-data.json
+npm run market-data  # refresh the CoinGecko snapshot (ranks, logos) in lib/market-data.json
+npm run history      # refresh the offline snapshot of 10 years of real prices (lib/history.json)
 ```
 
 ## Seven jurisdictions, switchable
@@ -32,21 +33,36 @@ Amounts are typed in the person's currency and converted to the GBP base the eng
 Live ECB rates (Frankfurter) when online, a 7 Oct 2026 snapshot otherwise. Limits are shares of
 savings, so no rule depends on a rate.
 
-## Real prices, and every number follows what you do
+## Real data, live
 
-`lib/market-data.json` holds the top 15 coins by market cap (CoinGecko, 7 Oct 2026; excluding
-non-retail tokens and duplicate stablecoins) plus tokenised gold, with logos in `public/coins/` and
-53 weekly GBP closes. The demo replays that year: the plan starts a year ago and the time controls
-(+1 day / week / month / 3 months / to today) move through real prices.
+| What | Source | Live | Offline fallback |
+|---|---|---|---|
+| Coin prices, 24h change, rank | CoinGecko `/coins/markets` | `/api/prices`, every 2 min | latest weekly close |
+| 10 years of weekly prices: 15 coins, tokenised gold, S&P 500, Nasdaq 100, MSCI World, FTSE 100, Apple, Microsoft, Nvidia, Amazon, Tesla, gold, US Treasuries, £ cash | Yahoo Finance daily closes (dividend-adjusted), GBP via daily GBP/USD | `/api/history`, cached 6h | `lib/history.json` |
+| Tokenised T-bills | 3-month US T-bill yield (^IRX), accrued daily | same | same |
+| Worst fall on record | computed from each asset's full daily history, in GBP | same | same |
+| Exchange rates | ECB reference rates (Frankfurter) | on load | 7 Oct 2026 rates |
 
-The portfolio is event-sourced (`lib/portfolio.ts`): every buy, sale and transfer is a transaction
-at that week's price, and value, gain, realised loss, the limit meter, the chart and the tax export
-are all derived from them. Each weekly buy runs the purchase rules; at the personal limit it buys
-only the headroom, then pauses. "What if it fell 30%?" applies a shock to crypto (not T-bills).
+Yahoo's chart API is unofficial; for production use a licensed feed (e.g. Twelve Data or LSEG for
+shares, Kaiko or CoinGecko Pro for crypto). `lib/data/yahoo.ts` is the only place that knows the source.
 
-Baskets take a one-off amount plus a weekly amount, with a backtest on the real year
-(`lib/backtest.ts`): biggest fall first, then annual return, volatility, best and worst week,
-return per unit of risk, against Bitcoin alone and cash, and what the chosen plan would be worth today.
+## Every number follows what you do
+
+The demo replays the last year of real prices: the plan starts a year ago and the time controls
+(+1 day / week / month / 3 months / to today) move through it. The portfolio is event-sourced
+(`lib/portfolio.ts`): every buy, sale and transfer is a transaction at that week's price, and value,
+gain, realised loss, the limit meter, the chart and the tax export are derived from them. Each weekly
+buy runs the purchase rules; at the personal limit it buys only the headroom, then pauses.
+"What if it fell 30%?" applies a shock to crypto (not cash or T-bills).
+
+Baskets take a one-off amount plus a weekly amount.
+
+**Backtest** is its own screen, opened from any basket, your own basket or an asset: choose
+3M / 6M / 1Y / 3Y / 5Y / 10Y (periods need history for every asset: Ether starts Nov 2017, so Core
+stops at 5Y; Bitcoin alone goes to 10Y) and compare against up to four of: S&P 500, Nasdaq 100,
+MSCI World, FTSE 100, Apple, Microsoft, Nvidia, Amazon, Tesla, gold, US Treasuries, £ cash,
+Bitcoin, Ether, Solana, XRP. Shows biggest fall first, then annual return and volatility, and what
+your one-off plus weekly plan would be worth in each.
 
 Search: on the Baskets tab (baskets and assets), All assets, and Build your own.
 

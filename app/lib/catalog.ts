@@ -1,7 +1,7 @@
 // Product content: what each asset is for, the baskets, display currencies and the course.
 // Prices come from lib/market.ts (real CoinGecko history); drawdowns and copy are curated.
 
-import { COIN_DATA, priceAt } from './market';
+import { COIN_DATA, getHistory, priceAt, worstFall } from './market';
 import { getRates } from './fx';
 
 export const ASSET_IDS = [
@@ -244,9 +244,27 @@ export const BASKETS: Basket[] = [
   },
 ];
 
-/** What 1,000 would have become at the worst point, given each asset's worst fall on record. */
+/** An asset's worst fall on record, in basis points: computed from its real price history
+ *  where we have it (in GBP), otherwise the curated figure. */
+export function worstFallBps(id: AssetId): number {
+  const w = worstFall(id === 'TBILL' ? 'TBILL' : id);
+  return w ? Math.round(-w.pct * 100) : ASSETS[id].worst_fall_bps;
+}
+
+/** When that worst fall happened, e.g. "Dec 2017 → Dec 2018". */
+export function worstFallWhen(id: AssetId): string {
+  const w = worstFall(id);
+  if (!w) return ASSETS[id].worst_when;
+  const m = (d: string) => new Date(d).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+  return `${m(w.peak)} → ${m(w.trough)}`;
+}
+
+/** Earliest date of real history behind these figures. */
+export const historySince = (id: AssetId) => getHistory().starts[id] ?? null;
+
+/** What 1,000 would have become if every asset hit its worst fall on record at once. */
 export function worstCase(lines: { asset: AssetId; weight_bps: number }[], start = 1000): number {
-  const kept = lines.reduce((s, l) => s + (l.weight_bps / 10_000) * (1 - ASSETS[l.asset].worst_fall_bps / 10_000), 0);
+  const kept = lines.reduce((s, l) => s + (l.weight_bps / 10_000) * (1 - worstFallBps(l.asset) / 10_000), 0);
   return Math.round(start * kept);
 }
 

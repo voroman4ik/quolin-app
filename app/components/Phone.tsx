@@ -8,6 +8,7 @@ import { Course } from './screens/Course';
 import { Result } from './screens/Result';
 import { AssetDetail, BasketDetail, Baskets, Build, Explore, PlanSetup } from './screens/Invest';
 import { Account, Home, Learn, PlaceAndCurrency, Withdraw } from './screens/Money';
+import { BacktestScreen } from './screens/Backtest';
 
 const TABS: { id: Screen; label: string; icon: React.ReactNode }[] = [
   { id: 'home', label: 'Portfolio', icon: <path d="M4 18 9 12l4 3 7-9M4 21h16" /> },
@@ -15,7 +16,7 @@ const TABS: { id: Screen; label: string; icon: React.ReactNode }[] = [
   { id: 'learn', label: 'Learn', icon: <path d="M3 8l9-4 9 4-9 4zM7 10v5c3 2 7 2 10 0v-5" /> },
   { id: 'account', label: 'Account', icon: <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c1-4 4-6 8-6s7 2 8 6" /> },
 ];
-const TABBED: Screen[] = ['home', 'baskets', 'learn', 'account', 'basket', 'build', 'withdraw', 'explore', 'asset'];
+const TABBED: Screen[] = ['home', 'baskets', 'learn', 'account', 'basket', 'build', 'withdraw', 'explore', 'asset', 'backtest'];
 
 function Body({ screen }: { screen: Screen }) {
   switch (screen) {
@@ -34,6 +35,7 @@ function Body({ screen }: { screen: Screen }) {
     case 'withdraw': return <Withdraw />;
     case 'explore': return <Explore />;
     case 'asset': return <AssetDetail />;
+    case 'backtest': return <BacktestScreen />;
   }
 }
 
@@ -41,7 +43,7 @@ export function Phone() {
   const { s, go, ready, pack } = useDemo();
   const [place, setPlace] = useState(false);
   const tabbed = TABBED.includes(s.screen);
-  const active = ['basket', 'build', 'explore', 'asset'].includes(s.screen) ? 'baskets' : s.screen === 'withdraw' ? 'home' : s.screen;
+  const active = ['basket', 'build', 'explore', 'asset', 'backtest'].includes(s.screen) ? 'baskets' : s.screen === 'withdraw' ? 'home' : s.screen;
 
   return (
     <div className="phone" aria-label="Quolin app">

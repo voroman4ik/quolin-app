@@ -6,7 +6,7 @@ import { checkPurchase, decideEverywhere, decideOnboarding, resolveBasket, check
 import { ASSET_IDS, BASKETS, money, toBasePence, worstCase } from './catalog';
 import { SARAH } from './personas';
 import { buyLines, sellPro, summarise, valueAt } from './portfolio';
-import { backtest } from './backtest';
+import { periodAvailable, runBacktest } from './backtest';
 import { priceAt } from './market';
 import { setRatesForTest } from './fx';
 
@@ -191,9 +191,11 @@ describe('baskets', () => {
     expect(checkLine(PACKS.UK, l2, 'SOL', 1001).determination.findings[0].reason_code).toBe('WEIGHT_CAP');
   });
 
-  it('worst case for Digital Gold: £1,000 → about £450', () => {
-    expect(worstCase(gold.lines)).toBeGreaterThan(430);
-    expect(worstCase(gold.lines)).toBeLessThan(470);
+  it('worst case uses real drawdowns (Bitcoin −82% 2017–18 in GBP)', () => {
+    expect(worstCase([{ asset: 'BTC', weight_bps: 10_000 }])).toBeGreaterThan(150);
+    expect(worstCase([{ asset: 'BTC', weight_bps: 10_000 }])).toBeLessThan(200);
+    expect(worstCase(gold.lines)).toBeGreaterThan(380);
+    expect(worstCase(gold.lines)).toBeLessThan(440);
   });
 });
 
@@ -233,12 +235,30 @@ describe('portfolio follows real prices and actions', () => {
   });
 });
 
-describe('backtest', () => {
-  it('reports the real year: Bitcoin swung far more than cash', () => {
-    const bt = backtest(BASKETS[0].lines, 20_000, 2500);
-    expect(bt.bitcoin.metrics.volatilityPct).toBeGreaterThan(bt.cash.metrics.volatilityPct * 5);
-    expect(bt.bitcoin.metrics.maxDrawdownPct).toBeLessThan(-40);
-    expect(bt.plan.paidInPence).toBe(20_000 + 52 * 2500);
+describe('backtest (real history)', () => {
+  it('compares a basket with index funds, gold and cash over a chosen period', () => {
+    const r = runBacktest('Core', BASKETS[0].lines, '5Y', ['SPX', 'GOLD', 'CASH', 'BTC'], 20_000, 2500)!;
+    expect(r.comparisons.map((c) => c.id)).toEqual(['SPX', 'GOLD', 'CASH', 'BTC']);
+    const by = Object.fromEntries(r.comparisons.map((c) => [c.id, c.metrics]));
+    expect(by.BTC.volatilityPct).toBeGreaterThan(by.SPX.volatilityPct * 2);
+    expect(by.CASH.volatilityPct).toBeLessThan(by.SPX.volatilityPct);
+    expect(r.basket.plan.paidInPence).toBe(20_000 + 260 * 2500);
+    expect(r.basket.index).toHaveLength(261);
+  });
+
+  it('periods need history for every asset in the basket', () => {
+    expect(periodAvailable(['BTC'], '10Y')).toBe(true);
+    expect(periodAvailable(['BTC', 'ETH'], '10Y')).toBe(false); // Ether data starts Nov 2017
+    expect(periodAvailable(['SOL'], '5Y')).toBe(true);
+    expect(periodAvailable(['HYPE'], '1Y')).toBe(true);
+    expect(periodAvailable(['HYPE'], '3Y')).toBe(false);
+    expect(runBacktest('Core', BASKETS[0].lines, '10Y', [], 0, 0)).toBeNull();
+  });
+
+  it('skips comparisons that do not go back far enough', () => {
+    const r = runBacktest('Bitcoin', [{ asset: 'BTC', weight_bps: 10_000 }], '5Y', ['SOL', 'HYPE'], 0, 2500)!;
+    expect(r.comparisons.map((c) => c.id)).toEqual(['SOL']);
+    expect(r.skipped.map((x) => x.id)).toEqual(['HYPE']);
   });
 });
 

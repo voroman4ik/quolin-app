@@ -349,3 +349,11 @@ pre.json { background: var(--ink); color: #dbe2e7; border-radius: 12px; padding:
 .t.compare th { font-size: 12px; vertical-align: bottom; min-width: 130px; }
 .t.compare td { vertical-align: top; min-width: 130px; }
 .table-wrap { overflow-x: auto; }
+
+/* ── Backtest ─────────────────────────────────────────────────────────────── */
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 500; }
+.tag[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.tag:disabled { opacity: 0.4; cursor: default; }
+.seg button:disabled { opacity: 0.35; cursor: not-allowed; }
+.t.bt th { font-size: 11px; }
