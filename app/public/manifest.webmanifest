@@ -1,0 +1,10 @@
+{
+  "name": "Quolin",
+  "short_name": "Quolin",
+  "description": "Crypto, the careful way.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F5F6F7",
+  "theme_color": "#0F1922",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
