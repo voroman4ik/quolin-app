@@ -4,8 +4,8 @@
 import { evaluate } from './engine/evaluate';
 import { CALCS } from './engine/calcs';
 import type { Determination, Finding, Pack, Snapshot } from './engine/types';
-import { ASSETS, type AssetId } from './catalog';
-import { COUNTRIES, PACKS, type Jurisdiction } from './packs';
+import type { AssetId, Currency } from './catalog';
+import { COUNTRIES, JURISDICTIONS, PACKS, type Jurisdiction } from './packs';
 
 export interface Profile {
   name: string;
@@ -26,13 +26,15 @@ export interface Profile {
   vulnerability: boolean | null;
   knowledgeScore: number | null;
   knowledgeLevel: number;
+  /** Answers to the questions only some countries ask (see Pack.local.questions). */
+  local: Record<string, string | boolean>;
 }
 
 export const EMPTY_PROFILE: Profile = {
   name: '', age: null, country: 'GB', taxCountry: 'GB', dependants: 0,
   incomeMonthly: 0, spendMonthly: 0, emergencyMonths: null, highInterestDebt: null, savings: 0,
   goal: '', horizonYears: null, attitude: null, fallReaction: null, vulnerability: null,
-  knowledgeScore: null, knowledgeLevel: 0,
+  knowledgeScore: null, knowledgeLevel: 0, local: {},
 };
 
 export function packFor(country: string): Pack | null {
@@ -42,6 +44,12 @@ export function packFor(country: string): Pack | null {
 
 export function jurisdictionOf(country: string): Jurisdiction | null {
   return COUNTRIES.find((c) => c.code === country)?.pack ?? null;
+}
+
+/** The currency someone living there would expect to see. */
+export function homeCurrency(country: string): Currency | null {
+  const j = jurisdictionOf(country);
+  return j ? (PACKS[j].local.home_currency as Currency) : null;
 }
 
 /** Capacity for loss, 1 (can't lose any) to 5. The reaction to a 50% fall sets it;
@@ -64,6 +72,7 @@ function clientFacts(p: Profile, extra: Record<string, unknown> = {}) {
     assessable_portfolio_cents: Math.round(p.savings * 100),
     knowledge_score: p.knowledgeScore,
     knowledge_level: p.knowledgeLevel,
+    ...(p.local ?? {}),
     ...extra,
   };
   if (p.age !== null) c.age_years = p.age;
@@ -155,8 +164,11 @@ export interface ResolvedBasket {
 
 /** Where an asset isn't allowed, the engine leaves it out and the basket rebalances.
  *  If too little is left, the basket isn't offered at all. */
-export function resolveBasket(pack: Pack, p: Profile, lines: { asset: AssetId; weight_bps: number }[]): ResolvedBasket {
-  const checks = lines.map((l) => checkLine(pack, p, l.asset, l.weight_bps));
+export function resolveBasket(pack: Pack, p: Profile, lines: { asset: AssetId; weight_bps: number }[], basketLevel = 1): ResolvedBasket {
+  // A basket above the person's level is locked as a whole (the course unlocks it), not
+  // quietly shrunk to the assets they could already hold. So it is resolved at its own level.
+  const person = { ...p, knowledgeLevel: Math.max(p.knowledgeLevel, basketLevel) };
+  const checks = lines.map((l) => checkLine(pack, person, l.asset, l.weight_bps));
   const kept = checks.filter((c) => c.determination.outcome === 'ALLOW');
   const removed = checks
     .filter((c) => c.determination.outcome !== 'ALLOW')
@@ -178,16 +190,39 @@ export function resolveBasket(pack: Pack, p: Profile, lines: { asset: AssetId; w
 
 export function checkPurchase(
   pack: Pack, p: Profile,
-  opts: { amountPence: number; heldPence: number; priorPurchases: number; coolingOffComplete: boolean },
+  opts: {
+    amountPence: number; heldPence: number; priorPurchases: number; coolingOffComplete: boolean;
+    funding?: Funding; acknowledgements?: Record<string, boolean>;
+  },
 ): Determination {
   const snapshot: Snapshot = {
     stage: 'purchase',
     client: clientFacts(p, {
       prior_crypto_purchases: opts.priorPurchases,
       cooling_off_complete: opts.coolingOffComplete,
+      // An unticked disclosure is a recorded "no", not a missing fact.
+      ...Object.fromEntries(pack.local.disclosures.map((d) => [d.field, false])),
+      ...(opts.acknowledgements ?? {}),
     }),
     positions: { crypto_value_cents: opts.heldPence },
-    trade: { amount_cents: opts.amountPence },
+    trade: { amount_cents: opts.amountPence, funding: opts.funding ?? 'bank_transfer' },
   };
   return evaluate(pack, 'purchase', snapshot);
+}
+
+export type Funding = 'bank_transfer' | 'debit_card' | 'credit_card';
+
+/** The largest buy the personal limit still allows, given what is held now. */
+export function headroomPence(limitPence: number, heldPence: number): number {
+  return Math.max(0, limitPence - heldPence);
+}
+
+/** One person, every country: the comparison that shows the rules really differ. */
+export function decideEverywhere(p: Profile, packFor: (j: Jurisdiction) => Pack = (j) => PACKS[j]) {
+  return JURISDICTIONS.map(({ id }) => {
+    const pack = packFor(id);
+    const country = COUNTRIES.find((c) => c.pack === id)!.code;
+    const r = decideOnboarding({ ...p, country, taxCountry: country }, pack);
+    return { j: id, pack, result: r };
+  });
 }

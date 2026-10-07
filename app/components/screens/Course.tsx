@@ -1,13 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { COURSE_L1, COURSE_L2 } from '@/lib/catalog';
+import { COURSE_L1, COURSE_L2, type Lesson } from '@/lib/catalog';
 import { useDemo } from '../demo-state';
-import { Back, Progress } from '../ui';
+import { Back, Progress, depositScheme, useMoney } from '../ui';
+
+/** Lessons speak the person's currency and name their own deposit scheme. */
+function localise(lessons: Lesson[], symbol: string, deposit: string): Lesson[] {
+  const r = (t: string) => t.replaceAll('{c}', symbol).replaceAll('{deposit}', deposit);
+  return lessons.map((l) => ({ ...l, title: r(l.title), body: r(l.body), question: r(l.question), why: r(l.why), options: l.options.map(r) }));
+}
 
 export function Course({ level }: { level: 1 | 2 }) {
   const { s, go, setProfile, pack } = useDemo();
-  const lessons = level === 1 ? COURSE_L1 : COURSE_L2;
+  const { symbol } = useMoney();
+  const lessons = localise(level === 1 ? COURSE_L1 : COURSE_L2, symbol, depositScheme(pack));
   const passMark = level === 1 ? ((pack?.thresholds.knowledge_pass_mark as number) ?? 4) : lessons.length - 1;
   const [i, setI] = useState(-1);
   const [picked, setPicked] = useState<number | null>(null);

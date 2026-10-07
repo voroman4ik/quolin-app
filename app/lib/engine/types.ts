@@ -54,15 +54,41 @@ export interface ReasonCode {
 /** How this regime treats one asset. `approval` is per country: the same token can be
  *  approved in Singapore and waiting for a legal opinion in the UK. */
 export interface AssetClassification {
-  class: 'core' | 'large' | 'steady' | 'speculative';
+  class: 'core' | 'large' | 'steady' | 'stable' | 'speculative';
   volatility_band: number;
   leverage: boolean;
   required_level: number;
   approval: 'approved' | 'opinion_needed' | 'excluded';
   structural_flags: string[];
+  /** Years since launch: the Approved List wants a track record. */
+  history_years: number;
+  /** How many recognised crypto indices include it (Hong Kong's large-cap test). */
+  index_count: number;
 }
 
 export type ThresholdValue = number | boolean | string[] | Record<string, number>;
+
+/** A question the fact-find asks only where this pack applies. The answer lands in
+ *  `client.<field>`; unanswered, the rules that read it refer by name. */
+export interface LocalQuestion {
+  field: string;
+  label: string;
+  hint?: string;
+  options: { value: string | boolean; label: string; sub?: string }[];
+}
+
+/** What changes for the person in this country, beyond the rules: content, not logic. */
+export interface PackLocal {
+  home_currency: string;
+  deposit_scheme: string;
+  tax: string;
+  tax_report: string;
+  questions: LocalQuestion[];
+  /** Acknowledgements the purchase stage reads (`client.<field>`). */
+  disclosures: { field: string; label: string }[];
+  /** One line per local difference, for comparing countries. */
+  highlights: string[];
+}
 
 export interface Pack {
   pack_id: string;
@@ -78,6 +104,7 @@ export interface Pack {
   assets: Record<string, AssetClassification>;
   rules: Rule[];
   reason_codes: Record<string, ReasonCode>;
+  local: PackLocal;
 }
 
 export interface Finding {

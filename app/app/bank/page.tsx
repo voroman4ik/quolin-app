@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { ASSETS, type AssetId } from '@/lib/catalog';
-import { consumerOutcome, decideOnboarding, personalLimit, type ConsumerOutcome } from '@/lib/decide';
+import { ASSETS, ASSET_IDS, money, type Currency } from '@/lib/catalog';
+import { consumerOutcome, decideOnboarding, jurisdictionOf, personalLimit, type ConsumerOutcome } from '@/lib/decide';
+import { getRates, subscribeFx } from '@/lib/fx';
 import { canonical, verify, type ChainEntry } from '@/lib/engine/chain';
 import { evaluate } from '@/lib/engine/evaluate';
 import type { Pack } from '@/lib/engine/types';
@@ -11,12 +12,14 @@ import {
 } from '@/lib/ledger';
 import { JURISDICTIONS, PACKS, PACK_UPDATES, type Jurisdiction } from '@/lib/packs';
 import { SEED_CLIENTS } from '@/lib/personas';
-import { OutcomePill } from '@/components/ui';
+import { Coin, OutcomePill } from '@/components/ui';
 
 type Entry = ChainEntry<LedgerBody>;
 
 const packAt = (j: Jurisdiction, v: number): Pack => (v === 2 ? PACK_UPDATES[j].pack : PACKS[j]);
-const gbp = (p: number) => `£${(p / 100).toLocaleString('en-GB', { maximumFractionDigits: 0 })}`;
+/** Limits are shown in the client's home currency, converted from the GBP base at today's rate. */
+const local = (p: number, packId: string | null) =>
+  money(p, ((packId && PACKS[packId as Jurisdiction]?.local.home_currency) || 'GBP') as Currency);
 
 // Effects run twice in development; seeding must happen once per empty chain.
 let seeding: Promise<void> | null = null;
@@ -29,12 +32,12 @@ function seed(): Promise<void> {
 async function seedOnce() {
   if (loadChain().some((e) => e.body.source === 'seed')) return;
   for (const c of SEED_CLIENTS) {
-    const j = ({ GB: 'UK', SG: 'SG', DE: 'EU', FR: 'EU', IE: 'EU', HK: 'HK' } as Record<string, Jurisdiction>)[c.profile.country];
-    const pack = activePack(j);
+    const j = jurisdictionOf(c.profile.country);
+    const pack = j ? activePack(j) : null;
     const r = decideOnboarding(c.profile, pack);
     await record({
-      kind: 'onboarding', client_id: c.id, client_name: c.profile.name, jurisdiction: pack.jurisdiction_name,
-      pack_id: pack.pack_id, pack_version: pack.version, outcome: r.outcome, summary: '',
+      kind: 'onboarding', client_id: c.id, client_name: c.profile.name, jurisdiction: pack?.jurisdiction_name ?? c.profile.country,
+      pack_id: pack?.pack_id ?? null, pack_version: pack?.version ?? null, outcome: r.outcome, summary: pack ? '' : r.reasons[0].title,
       reasons: r.reasons, limit_pence: r.limitPence, snapshot: r.snapshot, determination: r.determination, source: 'seed',
     });
   }
@@ -42,14 +45,16 @@ async function seedOnce() {
 
 const getChain = () => JSON.stringify(loadChain());
 const getVersions = () => JSON.stringify(packVersions());
+const VERSIONS_SSR = JSON.stringify({ UK: 1, SG: 1, EU: 1, HK: 1, AU: 1, MY: 1, US: 1 });
 
 interface Flip { client: string; id: string; before: string; after: string; limitBefore: number; limitAfter: number }
 
 export default function BankConsole() {
   const raw = useSyncExternalStore(subscribe, getChain, () => '[]');
-  const versionsRaw = useSyncExternalStore(subscribe, getVersions, () => '{"UK":1,"SG":1,"EU":1,"HK":1}');
+  const versionsRaw = useSyncExternalStore(subscribe, getVersions, () => VERSIONS_SSR);
   const chain = useMemo(() => JSON.parse(raw) as Entry[], [raw]);
   const versions = JSON.parse(versionsRaw) as Record<Jurisdiction, number>;
+  useSyncExternalStore(subscribeFx, getRates, getRates);
   const [selected, setSelected] = useState<number | null>(null);
   const [filter, setFilter] = useState<'all' | 'refer'>('all');
   const [broken, setBroken] = useState<number | null | 'checking'>('checking');
@@ -187,7 +192,7 @@ export default function BankConsole() {
                       <td className="small">{e.body.kind.replace('_', ' ')}{e.body.summary && e.body.kind !== 'onboarding' ? <><br /><span className="tiny muted">{e.body.summary}</span></> : null}</td>
                       <td className="small num">{e.body.pack_id ? `${e.body.pack_id} v${e.body.pack_version}` : '—'}</td>
                       <td><OutcomePill outcome={e.body.outcome} /></td>
-                      <td className="small num">{e.body.limit_pence ? gbp(e.body.limit_pence) : '—'}</td>
+                      <td className="small num">{e.body.limit_pence ? local(e.body.limit_pence, e.body.pack_id) : '—'}</td>
                     </tr>
                   ))}
                   {rows.length === 0 && <tr><td colSpan={6} className="muted small">Nothing here.</td></tr>}
@@ -245,7 +250,7 @@ export default function BankConsole() {
             <div className="card">
               <div className="between">
                 <h2 className="h2" style={{ margin: 0, fontSize: 19 }}>Rule packs</h2>
-                <div className="seg">
+                <div className="seg wrap">
                   {JURISDICTIONS.map((j) => <button key={j.id} aria-pressed={packView === j.id} onClick={() => setPackView(j.id)}>{j.id} v{versions[j.id]}</button>)}
                 </div>
               </div>
@@ -257,8 +262,12 @@ export default function BankConsole() {
                     ['Emergency fund', `${pv.thresholds.min_emergency_fund_months} months`],
                     ['Course pass mark', `${pv.thresholds.knowledge_pass_mark} of 5`],
                     ['Non-core asset cap', `${(pv.thresholds.max_noncore_weight_bps as number) / 100}% of a basket`],
-                    ['Cooling-off', pv.rules.some((r) => r.rule_id === 'PU-COOL-01') ? '24h before first purchase' : 'None'],
-                  ] as const).map(([k, v]) => <tr key={k}><td className="muted">{k}</td><td>{v}</td></tr>)}
+                    ['Cooling-off', pv.rules.some((r) => r.reason_code === 'COOLING_OFF') ? '24h before first purchase' : 'None'],
+                    ['Home currency', pv.local.home_currency],
+                    ['Local rules', pv.rules.filter((r) => r.rule_id.startsWith(pv.pack_id + '-')).map((r) => `${r.rule_id}: ${r.title}`).join(' · ') || 'None'],
+                    ['Asks in fact-find', pv.local.questions.map((q) => q.label).join(' · ') || 'Nothing extra'],
+                    ['Disclosures', pv.local.disclosures.map((d) => d.label).join(' · ') || 'None'],
+                  ] as const).map(([k, v]) => <tr key={k} style={{ cursor: 'default' }}><td className="muted">{k}</td><td className="small">{v}</td></tr>)}
                 </tbody>
               </table>
               <div style={{ marginTop: 12 }}>
@@ -281,7 +290,7 @@ export default function BankConsole() {
                     <div key={f.id} className="between" style={{ marginTop: 6 }}>
                       <span>{f.client}</span>
                       <span className="row" style={{ gap: 4 }}><OutcomePill outcome={f.before} /> → <OutcomePill outcome={f.after} />
-                        {f.before === f.after && <span className="num">{gbp(f.limitBefore)} → {gbp(f.limitAfter)}</span>}</span>
+                        {f.before === f.after && <span className="num">{local(f.limitBefore, impact.j)} → {local(f.limitAfter, impact.j)}</span>}</span>
                     </div>
                   ))}
                   <div className="tiny" style={{ marginTop: 8 }}>The customer app now uses v2 too. Each re-assessment is on the chain.</div>
@@ -294,9 +303,9 @@ export default function BankConsole() {
               <table className="t matrix" style={{ marginTop: 8 }}>
                 <thead><tr><th>Asset</th>{JURISDICTIONS.map((j) => <th key={j.id}>{j.id}</th>)}</tr></thead>
                 <tbody>
-                  {(Object.keys(PACKS.UK.assets) as AssetId[]).map((a) => (
+                  {ASSET_IDS.map((a) => (
                     <tr key={a} style={{ cursor: 'default' }}>
-                      <td className="small">{ASSETS[a].name}</td>
+                      <td className="small"><span className="row" style={{ gap: 6 }}><Coin asset={a} size={18} />{ASSETS[a].name}</span></td>
                       {JURISDICTIONS.map((j) => {
                         const ap = PACKS[j.id].assets[a].approval;
                         return <td key={j.id} style={{ color: ap === 'approved' ? 'var(--allow)' : ap === 'excluded' ? 'var(--block)' : 'var(--muted)' }}>
@@ -321,6 +330,33 @@ export default function BankConsole() {
             </div>
           </section>
         </div>
+
+        <section className="card" style={{ marginTop: 18 }}>
+          <h2 className="h2" style={{ margin: 0 }}>Seven jurisdictions, one engine</h2>
+          <p className="small muted" style={{ marginTop: 4 }}>Shared base rules, then each country’s own. Read straight from the signed packs, nothing typed by hand.</p>
+          <div className="table-wrap">
+            <table className="t compare">
+              <thead><tr><th />{JURISDICTIONS.map((j) => <th key={j.id}>{j.name}<br /><span className="tiny muted">{j.id} v{versions[j.id]}</span></th>)}</tr></thead>
+              <tbody>
+                {([
+                  ['Regulator', (p: Pack) => p.regulator],
+                  ['In force from', (p: Pack) => p.effective_from],
+                  ['Currency', (p: Pack) => p.local.home_currency],
+                  ['Personal cap', (p: Pack) => `${Math.min((p.thresholds.max_crypto_concentration_bps as number), Math.max(...Object.values(p.thresholds.limit_bps_by_loss_band as Record<string, number>))) / 100}% of savings`],
+                  ['Emergency fund', (p: Pack) => `${p.thresholds.min_emergency_fund_months} months`],
+                  ['Local rules', (p: Pack) => p.rules.filter((r) => r.rule_id.startsWith(p.pack_id + '-')).map((r) => r.title).join('; ') || '—'],
+                  ['Extra questions', (p: Pack) => p.local.questions.map((q) => q.label).join('; ') || '—'],
+                  ['Approved for retail', (p: Pack) => ASSET_IDS.filter((a) => p.assets[a].approval === 'approved').join(', ')],
+                  ['Not allowed', (p: Pack) => ASSET_IDS.filter((a) => p.assets[a].approval === 'excluded').join(', ') || '—'],
+                  ['Deposit scheme (doesn’t cover crypto)', (p: Pack) => p.local.deposit_scheme],
+                  ['Tax', (p: Pack) => p.local.tax],
+                ] as [string, (p: Pack) => string][]).map(([k, f]) => (
+                  <tr key={k} style={{ cursor: 'default' }}><td className="muted small"><b>{k}</b></td>{JURISDICTIONS.map((j) => <td key={j.id} className="small">{f(packAt(j.id, versions[j.id]))}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </div>
   );

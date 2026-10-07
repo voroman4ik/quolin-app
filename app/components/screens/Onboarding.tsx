@@ -1,11 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { CURRENCIES } from '@/lib/catalog';
 import { COUNTRIES } from '@/lib/packs';
 import type { Profile } from '@/lib/decide';
 import { useDemo } from '../demo-state';
-import { Back, Choice, Progress, Wordmark } from '../ui';
+import { Back, Choice, Progress, Wordmark, useMoney } from '../ui';
 
 export function Welcome() {
   const { s, go, set } = useDemo();
@@ -46,19 +45,20 @@ export function Welcome() {
 const STEPS = ['About you', 'Your money', 'What it’s for', 'Risk and loss'];
 
 export function FactFind() {
-  const { s, set, go, setProfile } = useDemo();
+  const { s, set, go, setProfile, setLocal, moveTo, pack } = useDemo();
+  const { symbol: sym, toBase, toLocal } = useMoney();
   const p = s.profile;
   const step = s.factStep;
-  const rate = CURRENCIES[s.currency].rate;
-  const sym = CURRENCIES[s.currency].symbol;
+  const localQs = pack?.local.questions ?? [];
   // "Prefer not to say" is an answer, recorded as unknown, so the engine refers rather than assumes.
   const [vulnAnswered, setVulnAnswered] = useState(p.vulnerability !== null);
 
-  const toGBP = (v: string) => Math.max(0, Math.round((Number(v.replace(/[^0-9.]/g, '')) || 0) / rate));
-  const show = (gbp: number) => (gbp ? String(Math.round(gbp * rate)) : '');
+  // Amounts are typed in the person's own currency and kept in GBP for the engine.
+  const toGBP = (v: string) => Math.max(0, toBase(Number(v.replace(/[^0-9.]/g, '')) || 0) / 100);
+  const show = (gbp: number) => (gbp ? String(toLocal(gbp * 100)) : '');
 
   const complete: boolean[] = [
-    !!p.name.trim() && p.age !== null && p.age > 0,
+    !!p.name.trim() && p.age !== null && p.age > 0 && localQs.every((q) => p.local[q.field] !== undefined),
     p.emergencyMonths !== null && p.highInterestDebt !== null && p.savings > 0,
     !!p.goal && p.horizonYears !== null,
     p.attitude !== null && p.fallReaction !== null && vulnAnswered,
@@ -87,8 +87,7 @@ export function FactFind() {
                 onChange={(e) => setProfile({ age: e.target.value ? Number(e.target.value.replace(/\D/g, '')) : null })} />
             </label>
             <label className="field"><span>Where do you live?</span>
-              <select className="select" value={p.country}
-                onChange={(e) => setProfile({ country: e.target.value, taxCountry: e.target.value })}>
+              <select className="select" value={p.country} onChange={(e) => moveTo(e.target.value)}>
                 {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
               </select>
             </label>
@@ -104,6 +103,21 @@ export function FactFind() {
                 ))}
               </div>
             </div>
+            {localQs.length > 0 && (
+              <div className="card tint" style={{ marginTop: 16 }}>
+                <div className="eyebrow" style={{ color: 'var(--bronze)' }}>Because you live in {pack?.jurisdiction_name}</div>
+                {localQs.map((q) => (
+                  <div className="field" key={q.field} style={{ marginTop: 8 }}>
+                    <span>{q.label}{q.hint && <span className="hint"> · {q.hint}</span>}</span>
+                    <div className={`choices${q.options.length > 3 && q.options.every((o) => !o.sub) ? ' four' : ''}`} style={q.options.length > 4 ? { gridTemplateColumns: 'repeat(3, 1fr)' } : undefined}>
+                      {q.options.map((o) => (
+                        <Choice key={String(o.value)} compact={!o.sub} value={o.value} current={p.local[q.field]} onPick={(v) => setLocal(q.field, v)} label={o.label} sub={o.sub} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         )}
 

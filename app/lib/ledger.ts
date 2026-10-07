@@ -7,7 +7,7 @@ import type { ConsumerOutcome } from './decide';
 import { PACKS, PACK_UPDATES, type Jurisdiction } from './packs';
 import type { Pack } from './engine/types';
 
-export type EntryKind = 'onboarding' | 'plan' | 'replay' | 'sell_request' | 'withdrawal';
+export type EntryKind = 'onboarding' | 'plan' | 'plan_run' | 'buy' | 'sell' | 'replay' | 'sell_request' | 'withdrawal';
 
 export interface LedgerBody {
   kind: EntryKind;
@@ -68,7 +68,7 @@ export function clearChain() {
 }
 
 export function packVersions(): Record<Jurisdiction, number> {
-  return read(PACKVER_KEY, { UK: 1, SG: 1, EU: 1, HK: 1 });
+  return { UK: 1, SG: 1, EU: 1, HK: 1, AU: 1, MY: 1, US: 1, ...read<Partial<Record<Jurisdiction, number>>>(PACKVER_KEY, {}) };
 }
 
 export function setPackVersion(j: Jurisdiction, v: number) {

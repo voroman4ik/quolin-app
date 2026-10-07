@@ -36,11 +36,13 @@ export function Result() {
   }, [result, d, pack, log, meta.label, s.clientId]);
 
   const baskets = useMemo(
-    () => (pack ? BASKETS.map((b) => ({ b, r: resolveBasket(pack, s.profile, b.lines) })) : []),
+    () => (pack ? BASKETS.map((b) => ({ b, r: resolveBasket(pack, s.profile, b.lines, b.level) })) : []),
     [pack, s.profile],
   );
 
   const weekly = suggestedWeekly(result.limitPence);
+  // A question only this country asks, not yet answered (e.g. after moving country).
+  const localGap = d?.findings.some((f) => f.missing_field && pack?.local.questions.some((q) => `client.${q.field}` === f.missing_field));
   const cap = (pack?.thresholds.max_crypto_concentration_bps as number) ?? 1000;
   const marker = Math.min(95, (result.limitBps / cap) * 62);
   const headline = {
@@ -57,6 +59,7 @@ export function Result() {
         <Progress step={6} of={6} />
         <div className="eyebrow">Step 6 of 6 · Your profile</div>
         <h2 className="h2">{headline}</h2>
+        {pack && <p className="tiny muted" style={{ margin: '-4px 0 0' }}>Decided under {pack.jurisdiction_name} rules · {pack.regulator}</p>}
 
         {result.outcome === 'ALLOW' ? (
           <>
@@ -77,7 +80,7 @@ export function Result() {
             </div>
             <div className="card">
               <div className="between"><span className="pill allow">Unlocked</span>
-                <span className="small">{baskets.filter((x) => x.r.available).map((x) => x.b.name).join(' · ') || 'None here yet'}</span>
+                <span className="small">{baskets.filter((x) => x.r.available && x.b.level <= Math.max(1, s.profile.knowledgeLevel)).map((x) => x.b.name).join(' · ') || 'None here yet'}</span>
               </div>
               {baskets.filter((x) => !x.r.available).map(({ b }) => (
                 <div className="between" key={b.id} style={{ marginTop: 8 }}>
@@ -87,7 +90,7 @@ export function Result() {
               ))}
               <div className="between" style={{ marginTop: 8 }}>
                 <span className={`pill ${s.profile.knowledgeLevel >= 2 ? 'allow' : ''}`}>{s.profile.knowledgeLevel >= 2 ? 'Unlocked' : 'Locked'}</span>
-                <span className="small muted">Build your own (Level 2)</span>
+                <span className="small muted">{[...baskets.filter((x) => x.r.available && x.b.level === 2).map((x) => x.b.name), 'Build your own'].join(' · ')} (Level 2)</span>
               </div>
             </div>
           </>
@@ -131,7 +134,7 @@ export function Result() {
       </div>
       <div className="phone-foot">
         {result.outcome === 'ALLOW' && (
-          <button className="btn" onClick={() => { set({ weeklyPence: weekly }); go('baskets'); }}>See my baskets</button>
+          <button className="btn" onClick={() => { set({ weeklyPence: weekly, initialPence: Math.min(s.initialPence, result.limitPence) }); go('baskets'); }}>See my baskets</button>
         )}
         {result.reasons.some((r) => r.rule_id === 'ON-KNOW-01') && (
           <button className="btn" onClick={() => { setProfile({ knowledgeScore: null }); go('course'); }}>
@@ -142,6 +145,9 @@ export function Result() {
           <button className="btn" disabled={reminded} onClick={() => setReminded(true)}>
             {reminded ? '✓ We’ll check in with you in 3 months' : 'Remind me in 3 months'}
           </button>
+        )}
+        {localGap && (
+          <button className="btn" onClick={() => { set({ factStep: 0 }); go('factfind'); }}>Answer {pack?.jurisdiction_name}’s question</button>
         )}
         {result.outcome !== 'ALLOW' && (
           <button className="btn secondary" onClick={() => { set({ factStep: 1 }); go('factfind'); }}>Change an answer</button>

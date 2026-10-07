@@ -1,23 +1,25 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
-import { CURRENCIES, type Currency } from '@/lib/catalog';
-import type { Profile } from '@/lib/decide';
-import { loadChain, subscribe, type LedgerBody } from '@/lib/ledger';
+import { useMemo, useSyncExternalStore } from 'react';
+import { BASKETS, CURRENCIES, money, type Currency } from '@/lib/catalog';
+import { decideEverywhere, jurisdictionOf, resolveBasket, type Profile } from '@/lib/decide';
+import { activePack, loadChain, subscribe, type LedgerBody } from '@/lib/ledger';
 import { COUNTRIES, PACKS, type Jurisdiction } from '@/lib/packs';
 import { SARAH } from '@/lib/personas';
 import type { ChainEntry } from '@/lib/engine/chain';
 import { INITIAL, resetDemoState, useDemo, type DemoState, type Screen } from './demo-state';
+import { TimeBar } from './screens/Money';
 import { OutcomePill } from './ui';
 
 const STEPS: { title: string; note: string; screens: Screen[] }[] = [
   { title: 'Open', note: 'Crypto, the careful way', screens: ['welcome'] },
-  { title: 'Fact-find', note: 'Like an adviser: you, money, goals, risk', screens: ['factfind'] },
+  { title: 'Fact-find', note: 'Like an adviser, plus each country’s own questions', screens: ['factfind'] },
   { title: 'Learn to unlock', note: 'The regulator’s test, as a course', screens: ['course'] },
   { title: 'Your limit', note: 'The app that tells you to invest less', screens: ['result'] },
-  { title: 'Baskets', note: 'What-it’s-for and worst-year cards', screens: ['baskets', 'basket', 'plan'] },
-  { title: 'Build your own', note: 'Locked, capped, explained', screens: ['build', 'course2'] },
-  { title: 'Calm', note: 'A 30% fall, met with context', screens: ['home', 'withdraw'] },
+  { title: 'Baskets and backtest', note: 'Pick an amount; a year of real prices', screens: ['baskets', 'basket', 'plan', 'explore', 'asset'] },
+  { title: 'Build your own', note: 'Search 17 assets; locked, capped, explained', screens: ['build', 'course2'] },
+  { title: 'Invest', note: '5 months of weekly buys at real prices', screens: [] },
+  { title: 'Calm', note: 'The real low of July 2026, met with context', screens: ['home', 'withdraw'] },
 ];
 
 const OUTCOME_PERSONAS: { label: string; profile: Partial<Profile> }[] = [
@@ -27,34 +29,44 @@ const OUTCOME_PERSONAS: { label: string; profile: Partial<Profile> }[] = [
   { label: '✕ Not for you · needs it', profile: { name: 'Tom', age: 19, fallReaction: 'need' } },
 ];
 
+const later = (fn: () => void, ms = 80) => new Promise<void>((r) => setTimeout(() => { fn(); r(); }, ms));
+
 export function Guide() {
-  const { s, set } = useDemo();
+  const { s, set, moveTo, setCurrency, startPlan, advance, pack } = useDemo();
   const current = STEPS.findIndex((st) => st.screens.includes(s.screen));
-  const keepPlace = { country: s.profile.country, taxCountry: s.profile.country };
-  const sarah = { ...SARAH, ...keepPlace };
+  const sarah = { ...SARAH, country: s.profile.country, taxCountry: s.profile.country };
+  const acks = Object.fromEntries((pack?.local.disclosures ?? []).map((d) => [d.field, true]));
+  const fresh = { txns: [], nextId: 1, plan: null, week: 0, shocks: [], limitReached: false, pendingSell: null, transfers: [], heldBuyPence: 0, toast: null };
+
+  // Runs a plan on Core from a year ago: £200 to start, £25 a week, at real prices.
+  const invest = async (weeks: number) => {
+    set({ ...fresh, profile: { ...sarah, knowledgeLevel: Math.max(1, s.profile.knowledgeLevel) }, coolingOffDone: true, acks, funding: 'bank_transfer',
+      initialPence: 20_000, weeklyPence: 2500, draft: { name: 'Core', lines: [{ asset: 'BTC', weight_bps: 7000 }, { asset: 'ETH', weight_bps: 3000 }] } });
+    await later(startPlan);
+    await later(() => advance(weeks));
+  };
 
   const jump = (i: number) => {
-    const patches: Partial<DemoState>[] = [
+    const level1 = { ...sarah, knowledgeLevel: Math.max(1, s.profile.knowledgeLevel) };
+    const patches: (Partial<DemoState> | (() => void))[] = [
       { screen: 'welcome' },
       { screen: 'factfind', factStep: 0, profile: { ...sarah, knowledgeScore: null, knowledgeLevel: 0 } },
       { screen: 'course', profile: { ...sarah, knowledgeScore: null, knowledgeLevel: 0 } },
-      { screen: 'result', profile: { ...sarah, knowledgeLevel: Math.max(1, s.profile.knowledgeLevel) } },
-      { screen: 'baskets', profile: { ...sarah, knowledgeLevel: Math.max(1, s.profile.knowledgeLevel) } },
+      { screen: 'result', profile: level1 },
+      { screen: 'basket', selectedBasket: 'core', profile: level1, initialPence: 20_000, weeklyPence: 2500 },
       { screen: 'build', profile: { ...sarah, knowledgeLevel: 2 } },
-      {
-        screen: 'home', profile: { ...sarah, knowledgeLevel: Math.max(1, s.profile.knowledgeLevel) }, weeks: 26, market: 'crash',
-        coolingOffDone: true, sellPendingUntil: null,
-        plan: s.plan ?? { name: 'Core', lines: [{ asset: 'BTC', weight_bps: 7000 }, { asset: 'ETH', weight_bps: 3000 }], weeklyPence: 2500, startedAt: new Date(Date.now() - 182 * 86400_000).toISOString(), firstBuyAt: null },
-      },
+      () => void invest(22),
+      () => void invest(38),
     ];
-    set(patches[i]);
+    const p = patches[i];
+    if (typeof p === 'function') p(); else set(p);
   };
 
   return (
     <aside className="side guide">
       <div className="panel">
         <h2>Demo guide</h2>
-        <p className="small muted" style={{ margin: 0 }}>One person’s journey, about 4 minutes. Jump to any step; the app fills in Sarah’s answers.</p>
+        <p className="small muted" style={{ margin: 0 }}>One person’s journey, about 5 minutes. Jump to any step; the app fills in Sarah’s answers. Every amount comes from real prices and what you do.</p>
         <ol className="steps">
           {STEPS.map((st, i) => (
             <li key={st.title}>
@@ -65,11 +77,18 @@ export function Guide() {
           ))}
           <li>
             <button onClick={() => window.open('/bank', 'quolin-bank')}>
-              <b>Bank view ↗</b><small>Every decision, its reasons and the evidence chain</small>
+              <b>Bank view ↗</b><small>Every decision, seven rule packs, the evidence chain</small>
             </button>
           </li>
         </ol>
       </div>
+
+      {s.plan && (
+        <div className="panel">
+          <h2 style={{ fontSize: 16 }}>Time and markets</h2>
+          <TimeBar />
+        </div>
+      )}
 
       <div className="panel">
         <h2 style={{ fontSize: 16 }}>Show each outcome</h2>
@@ -82,17 +101,16 @@ export function Guide() {
       </div>
 
       <div className="panel">
-        <h2 style={{ fontSize: 16 }}>Settings</h2>
+        <h2 style={{ fontSize: 16 }}>Country and currency</h2>
         <div className="ctl">
           <label>Lives in (picks the rule pack)
-            <select className="select" value={s.profile.country}
-              onChange={(e) => set((prev) => ({ profile: { ...prev.profile, country: e.target.value, taxCountry: e.target.value } }))}>
+            <select className="select" value={s.profile.country} onChange={(e) => moveTo(e.target.value)}>
               {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}{c.pack ? ` · ${c.pack} pack` : ' · no pack'}</option>)}
             </select>
           </label>
-          <label>Display currency
-            <select className="select" value={s.currency} onChange={(e) => set({ currency: e.target.value as Currency })}>
-              {Object.keys(CURRENCIES).map((c) => <option key={c}>{c}</option>)}
+          <label>Display currency {s.currencyPinned ? '' : '(follows the country)'}
+            <select className="select" value={s.currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
+              {(Object.keys(CURRENCIES) as Currency[]).map((c) => <option key={c} value={c}>{c} · {CURRENCIES[c].name}</option>)}
             </select>
           </label>
           <label>Brand
@@ -101,11 +119,47 @@ export function Guide() {
               <option value="northbank">Northbank (white-label)</option>
             </select>
           </label>
-          <button className="btn ghost small" onClick={() => { resetDemoState(); set({ ...INITIAL, currency: s.currency, brand: s.brand }); }}>Reset the app</button>
+          <button className="btn ghost small" onClick={() => { resetDemoState(); set({ ...INITIAL, brand: s.brand }); }}>Reset the app</button>
         </div>
       </div>
     </aside>
   );
+}
+
+/** One person, every country: the same answers, seven rule packs, seven results. */
+function Everywhere() {
+  const { s, moveTo } = useDemo();
+  const { fmt } = useMoneyFor();
+  const base = s.profile.name ? s.profile : SARAH;
+  const rows = useMemo(() => decideEverywhere({ ...base, local: { ...SARAH.local, ...base.local } }, (j) => activePack(j)), [base]);
+  const here = jurisdictionOf(s.profile.country);
+  return (
+    <div className="panel">
+      <h2 style={{ fontSize: 16 }}>{base.name || 'Sarah'} in every country</h2>
+      <p className="tiny muted" style={{ margin: '2px 0 8px' }}>Same answers, each country’s rules. Tap a row to move there.</p>
+      <table className="t compact everywhere">
+        <tbody>
+          {rows.map(({ j, pack, result }) => {
+            const baskets = BASKETS.filter((b) => b.level <= Math.max(1, base.knowledgeLevel) && resolveBasket(pack, { ...base, country: COUNTRIES.find((c) => c.pack === j)!.code }, b.lines, b.level).available).length;
+            const cur = pack.local.home_currency as Currency;
+            return (
+              <tr key={j} className={j === here ? 'sel' : ''} onClick={() => moveTo(COUNTRIES.find((c) => c.pack === j)!.code)}>
+                <td><b>{j}</b></td>
+                <td><OutcomePill outcome={result.outcome} /></td>
+                <td className="num small">{result.outcome === 'ALLOW' ? fmt(result.limitPence, cur) : result.reasons[0]?.title}</td>
+                <td className="tiny muted">{result.outcome === 'ALLOW' ? `${baskets} baskets` : ''}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function useMoneyFor() {
+  useDemo(); // re-render when rates arrive
+  return { fmt: (pence: number, cur: Currency) => money(pence, cur) };
 }
 
 const EMPTY = '[]';
@@ -166,8 +220,9 @@ export function UnderTheHood() {
           </>
         )}
       </div>
+      <Everywhere />
       <div className="panel small">
-        <b>{chain.length}</b> decisions on the chain.{' '}
+        <b>{chain.length}</b> {chain.length === 1 ? 'decision' : 'decisions'} on the chain.{' '}
         <a href="/bank" target="quolin-bank">Open the bank console ↗</a>
         <p className="tiny muted" style={{ margin: '8px 0 0' }}>All rule packs are illustrative and not reviewed. Prices and returns are illustrative.</p>
       </div>
