@@ -361,3 +361,12 @@ pre.json { background: var(--ink); color: #dbe2e7; border-radius: 12px; padding:
 .tag .coin { width: 16px; height: 16px; }
 .tag .dot { margin-right: 0; }
 .compare-list { max-height: 260px; overflow-y: auto; margin-top: 2px; }
+.bt-chart { margin-top: 10px; }
+.bt-tick { font-size: 8.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.bt-readout { margin-top: 4px; min-height: 52px; }
+.t.bt td, .t.bt th { padding: 6px 4px; }
+.t.bt th { font-size: 10px; }
+.t.bt { table-layout: fixed; width: 100%; }
+.t.bt th:first-child, .t.bt td.name { width: 34%; }
+.t.bt td.name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t.bt td:not(.name), .t.bt th:not(:first-child) { text-align: right; }

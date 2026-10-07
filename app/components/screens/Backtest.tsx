@@ -5,7 +5,7 @@ import { ASSET_IDS, ASSETS, CATEGORY_LABEL } from '@/lib/catalog';
 import { PERIODS, periodAvailable, runBacktest, type Metrics, type Period } from '@/lib/backtest';
 import { fmtDate, getHistory } from '@/lib/market';
 import { useDemo, type Line } from '../demo-state';
-import { Back, Coin, MoneyInput, Search, Spark, matches, useMoney } from '../ui';
+import { Back, Coin, MoneyInput, Search, matches, useMoney } from '../ui';
 
 const COLOURS = ['var(--bronze)', '#2C5F8A', '#2F6B54', '#7A5AF8', '#C23631', '#0E7490', '#6B7280'];
 const MAX_COMPARE = 6;
@@ -27,18 +27,65 @@ export function BacktestButton({ name, lines }: { name: string; lines: Line[] })
   );
 }
 
-function Chart({ series, colours }: { series: number[][]; colours: string[] }) {
-  const all = series.flat();
-  const range: [number, number] = [Math.min(...all), Math.max(...all)];
-  // Reference line at the starting value.
-  const base = 1;
-  const y = (v: number) => 120 - 6 - ((v - range[0]) / (range[1] - range[0] || 1)) * (120 - 12);
+/** Growth chart: every line starts at 0% and the axis is growth since the start date. */
+function Chart({ series, colours, labels, dates }: { series: number[][]; colours: string[]; labels: string[]; dates: string[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 300, H = 180, L = 40, R = 6, T = 8, B = 8;
+  const growth = series.map((s) => s.map((v) => (v / s[0] - 1) * 100));
+  const all = growth.flat();
+  const lo = Math.min(0, ...all), hi = Math.max(0, ...all);
+  // Round steps that give about five gridlines.
+  const step = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000].find((x) => (hi - lo) / x <= 5) ?? 10000;
+  // The scale fits the data (with a little room); gridlines sit on round steps inside it.
+  const pad = (hi - lo) * 0.06 || 1;
+  const min = lo - pad, max = hi + pad;
+  const ticks: number[] = [];
+  for (let p = Math.ceil(min / step) * step; p <= max; p += step) ticks.push(p);
+  // With a big step a small range below 0 gets no gridline: add a finer one so falls are readable.
+  if (lo < 0 && !ticks.some((t) => t < 0)) {
+    const fine = [5, 10, 20, 25, 50].reverse().find((f) => -f >= min) ;
+    if (fine) ticks.unshift(-fine);
+  }
+  const n = growth[0].length;
+  const x = (i: number) => L + (i / (n - 1)) * (W - L - R);
+  const y = (g: number) => T + (1 - (g - min) / (max - min || 1)) * (H - T - B);
+  // Never two labels on top of each other: 0% always stays, others need room.
+  const shown = ticks.filter((t) => t === 0 || ticks.every((u) => u === t || Math.abs(y(u) - y(t)) >= 12 || (u !== 0 && Math.abs(u) > Math.abs(t))));
+  const fmt = (g: number) => `${g > 0 ? '+' : g < 0 ? '−' : ''}${Math.abs(g) >= 100 ? Math.round(Math.abs(g)) : Math.abs(g).toFixed(1)}%`;
+  const at = hover ?? n - 1;
+
+  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    setHover(Math.max(0, Math.min(n - 1, Math.round(((px - L) / (W - L - R)) * (n - 1)))));
+  };
+
   return (
-    <div className="multi-spark" style={{ height: 120 }}>
-      <svg className="spark" viewBox="0 0 300 120" preserveAspectRatio="none" style={{ height: 120 }} aria-hidden>
-        <line x1="0" x2="300" y1={y(base)} y2={y(base)} stroke="var(--line)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+    <div className="bt-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', touchAction: 'none' }}
+        onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={() => setHover(null)} role="img"
+        aria-label={`Growth since ${fmtDate(dates[0])}: ${labels.map((l, k) => `${l} ${fmt(growth[k][n - 1])}`).join(', ')}`}>
+        {shown.map((p) => (
+          <g key={p}>
+            <line x1={L} x2={W - R} y1={y(p)} y2={y(p)} stroke={p === 0 ? 'var(--muted)' : 'var(--line)'} strokeWidth={p === 0 ? 1 : 0.6} strokeDasharray={p === 0 ? '3 3' : undefined} />
+            <text x={L - 5} y={y(p)} textAnchor="end" dominantBaseline="middle" className="bt-tick">{p > 0 ? '+' : p < 0 ? '−' : ''}{Math.abs(p)}%</text>
+          </g>
+        ))}
+        {growth.map((g, k) => (
+          <polyline key={k} fill="none" stroke={colours[k]} strokeWidth={k === 0 ? 2 : 1.3} strokeLinejoin="round"
+            points={g.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} opacity={k === 0 ? 1 : 0.9} />
+        )).reverse()}
+        {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} stroke="var(--ink)" strokeWidth={0.6} />}
+        {growth.map((g, k) => <circle key={k} cx={x(at)} cy={y(g[at])} r={k === 0 ? 2.6 : 2} fill={colours[k]} />)}
       </svg>
-      {series.map((s, i) => <Spark key={i} values={s} stroke={colours[i]} height={120} range={range} />).reverse()}
+      <div className="bt-readout">
+        <span className="tiny muted">{hover === null ? 'Today' : fmtDate(dates[hover])} · growth since {fmtDate(dates[0])}</span>
+        <div className="legend" style={{ marginTop: 4 }}>
+          {labels.map((l, k) => (
+            <span key={l}><i style={{ background: colours[k] }} />{l} <b className="num" style={{ color: growth[k][at] >= 0 ? 'var(--allow)' : 'var(--block)' }}>{fmt(growth[k][at])}</b></span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -81,6 +128,7 @@ export function BacktestScreen() {
     ? [result.basket, ...result.comparisons].map((it, i) => ({ label: it.label, m: it.metrics, colour: i === 0 ? COLOURS[0] : COLOURS[1 + s.btCompare.indexOf(it.id)], plan: it.plan }))
     : [];
   const longEnough = rows[0]?.m.years >= 1;
+  const chartDates = result ? h.dates.slice(h.dates.length - result.basket.index.length) : [];
   const youngest = ids.map((id) => ({ id, since: h.starts[id] })).sort((a, b) => (a.since < b.since ? 1 : -1))[0];
 
   return (
@@ -141,23 +189,17 @@ export function BacktestScreen() {
 
       {result && (
         <>
-          <Chart series={rows.map((_, i) => (i === 0 ? result.basket : result.comparisons[i - 1]).index)} colours={rows.map((r) => r.colour)} />
-          <div className="between tiny muted"><span>{fmtDate(result.from)}</span><span>{fmtDate(result.to)}</span></div>
-          <div className="legend" style={{ marginTop: 6 }}>
-            {rows.map((r) => <span key={r.label}><i style={{ background: r.colour }} />{r.label}</span>)}
-          </div>
-
+          <Chart series={rows.map((_, i) => (i === 0 ? result.basket : result.comparisons[i - 1]).index)} colours={rows.map((r) => r.colour)} labels={rows.map((r) => r.label)} dates={chartDates} />
           <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: 12 }}>
             <table className="t compact bt">
-              <thead><tr><th /><th>Biggest fall</th><th>{longEnough ? 'A year' : 'Total'}</th><th>Swings</th></tr></thead>
+              <thead><tr><th /><th>Growth</th><th>Per yr</th><th>Worst</th><th>Swings</th></tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.label} style={{ cursor: 'default' }}>
-                    <td className="small"><i className="dot" style={{ background: r.colour }} />{r.label}</td>
+                    <td className="small name" title={r.label}><i className="dot" style={{ background: r.colour }} />{r.label}</td>
+                    <td className="num small" style={{ fontWeight: 600, color: r.m.totalReturnPct >= 0 ? 'var(--allow)' : 'var(--block)' }}>{pct(r.m.totalReturnPct, 0)}</td>
+                    <td className="num small" style={{ color: r.m.annualReturnPct >= 0 ? 'var(--allow)' : 'var(--block)' }}>{longEnough ? pct(r.m.annualReturnPct) : '—'}</td>
                     <td className="num small" style={{ color: 'var(--block)' }}>{pct(r.m.maxDrawdownPct, 0)}</td>
-                    <td className="num small" style={{ color: (longEnough ? r.m.annualReturnPct : r.m.totalReturnPct) >= 0 ? 'var(--allow)' : 'var(--block)' }}>
-                      {pct(longEnough ? r.m.annualReturnPct : r.m.totalReturnPct)}
-                    </td>
                     <td className="num small">{r.m.volatilityPct.toFixed(0)}%</td>
                   </tr>
                 ))}
@@ -165,7 +207,7 @@ export function BacktestScreen() {
             </table>
           </div>
           <p className="tiny muted" style={{ margin: '6px 0 0' }}>
-            Biggest fall: peak to trough in the period. {longEnough ? 'A year: average annual return.' : 'Total: return over the period.'} Swings: annualised volatility of weekly returns.
+            Growth: total change over the period. Per yr: average yearly growth{longEnough ? '' : ' (shown for a year or more)'}. Worst: biggest peak-to-trough fall. Swings: annualised volatility.
           </p>
 
           <div className="card">
