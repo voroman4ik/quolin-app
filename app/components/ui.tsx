@@ -108,8 +108,13 @@ export function WeightBar({ lines }: { lines: { asset: AssetId; weight_bps: numb
 
 export function Coin({ asset, size = 34 }: { asset: AssetId; size?: number }) {
   const a = ASSETS[asset];
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img className="coin" src={a.logo} alt={`${a.name} logo`} width={size} height={size} style={{ width: size, height: size }} />;
+  // Every logo sits in the same round frame, whether the artwork is a full circle or a bare mark.
+  return (
+    <span className="coin" style={{ width: size, height: size }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={a.logo} alt={`${a.name} logo`} width={size} height={size} />
+    </span>
+  );
 }
 
 export const OUTCOME_META: Record<ConsumerOutcome, { cls: string; icon: string; label: string }> = {
@@ -135,19 +140,4 @@ export function Back({ onClick, label = 'Back' }: { onClick: () => void; label?:
 /** The deposit scheme people will assume covers them, named so we can say it doesn't. */
 export function depositScheme(pack: { local: { deposit_scheme: string } } | null): string {
   return pack?.local.deposit_scheme ?? 'deposit protection';
-}
-
-export function Spark({ values, stroke = 'var(--bronze)', height = 70, marks, range }: { values: number[]; stroke?: string; height?: number; marks?: number[]; range?: [number, number] }) {
-  if (values.length < 2) return null;
-  const [min, max] = range ?? [Math.min(...values), Math.max(...values)];
-  const span = max - min || 1;
-  const x = (i: number) => (i / (values.length - 1)) * 300;
-  const y = (v: number) => height - 6 - ((v - min) / span) * (height - 12);
-  const d = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  return (
-    <svg className="spark" viewBox={`0 0 300 ${height}`} preserveAspectRatio="none" style={{ height }} aria-hidden>
-      {marks?.map((m) => <line key={m} x1={x(m)} x2={x(m)} y1={0} y2={height} stroke="var(--line)" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />)}
-      <path d={d} fill="none" stroke={stroke} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
 }

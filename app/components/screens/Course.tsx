@@ -58,7 +58,7 @@ export function Course({ level }: { level: 1 | 2 }) {
             </p>
             <ol className="list card">
               {lessons.map((l, n) => (
-                <li key={l.title} className="row"><span className="pill">{n + 1}</span>{l.title}</li>
+                <li key={l.title} className="row"><span className="num-badge">{n + 1}</span>{l.title}</li>
               ))}
             </ol>
             <p className="tiny muted" style={{ marginTop: 12 }}>

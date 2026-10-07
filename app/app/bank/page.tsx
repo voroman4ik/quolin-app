@@ -190,7 +190,7 @@ export default function BankConsole() {
                       <td className="num muted">{e.seq}</td>
                       <td><b>{e.body.client_name}</b><br /><span className="tiny muted">{e.body.client_id}{e.body.source === 'app' ? ' · live' : ''}</span></td>
                       <td className="small">{e.body.kind.replace('_', ' ')}{e.body.summary && e.body.kind !== 'onboarding' ? <><br /><span className="tiny muted">{e.body.summary}</span></> : null}</td>
-                      <td className="small num">{e.body.pack_id ? `${e.body.pack_id} v${e.body.pack_version}` : '—'}</td>
+                      <td className="small num nowrap">{e.body.pack_id ? `${e.body.pack_id} v${e.body.pack_version}` : '—'}</td>
                       <td><OutcomePill outcome={e.body.outcome} /></td>
                       <td className="small num">{e.body.limit_pence ? local(e.body.limit_pence, e.body.pack_id) : '—'}</td>
                     </tr>
@@ -248,7 +248,7 @@ export default function BankConsole() {
             )}
 
             <div className="card">
-              <div className="between">
+              <div className="pack-head">
                 <h2 className="h2" style={{ margin: 0, fontSize: 19 }}>Rule packs</h2>
                 <div className="seg wrap">
                   {JURISDICTIONS.map((j) => <button key={j.id} aria-pressed={packView === j.id} onClick={() => setPackView(j.id)}>{j.id} v{versions[j.id]}</button>)}

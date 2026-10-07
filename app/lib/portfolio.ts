@@ -107,3 +107,10 @@ export function valueSeries(txns: Txn[], from: number, to: number, shocks: Shock
   for (let w = from; w <= to; w++) out.push(valueAt(txns, w, shocks));
   return out;
 }
+
+/** Money still in (cost of what is held) at the end of each week, for the "paid in" line. */
+export function costSeries(txns: Txn[], from: number, to: number): number[] {
+  const out: number[] = [];
+  for (let w = from; w <= to; w++) out.push(summarise(txns, w).costPence);
+  return out;
+}

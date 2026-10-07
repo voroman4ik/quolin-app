@@ -4,20 +4,31 @@ import { useMemo, useState, useSyncExternalStore } from 'react';
 import { ASSETS, ASSET_IDS, BASKETS, CATEGORY_LABEL, pricePence, worstCase, worstFallBps, worstFallWhen, historySince, type AssetId } from '@/lib/catalog';
 import { checkLine, resolveBasket, type Funding } from '@/lib/decide';
 import type { Determination, Pack } from '@/lib/engine/types';
-import { COIN_DATA, fmtDate, fmtWeek, LAST_WEEK, marketSource, priceAt, yearChangePct } from '@/lib/market';
+import { COIN_DATA, fmtDate, fmtWeek, LAST_WEEK, marketSource, priceAt, weekDate, yearChangePct } from '@/lib/market';
 import { getLivePrices, subscribeLivePrices } from '@/lib/live-prices';
 import { BacktestButton } from './Backtest';
+import { LineChart, ModeSwitch } from '../LineChart';
 import { useDemo, type Line } from '../demo-state';
-import { Back, Coin, MoneyInput, Search, Spark, WeightBar, depositScheme, matches, useMoney } from '../ui';
+import { Back, Coin, MoneyInput, Search, WeightBar, depositScheme, matches, useMoney } from '../ui';
 
-const pct = (v: number, digits = 1) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(digits)}%`;
+const pct = (v: number, digits = 1) => {
+  const r = Math.abs(v).toFixed(digits);
+  return Number(r) === 0 ? `${(0).toFixed(digits)}%` : `${v > 0 ? '+' : '−'}${r}%`;
+};
+
+/** Short labels for pills, so they stay on one line. The full reason is on the asset's page. */
+const SHORT: Record<string, string> = {
+  NOT_APPROVED_HERE: 'Not approved here', LEVEL_LOCKED: 'Level 2', EXCHANGE_TOKEN: 'Exchange token', PRIVACY: 'Privacy coin',
+  MEME: 'Meme coin', TOO_YOUNG: 'Too new', WEIGHT_CAP: 'Capped at 10%', LOSS_FLOOR: 'Too volatile for you', HK_INDEX: 'Not large-cap',
+  SHARIAH: 'Not Shariah', LEVERAGE: 'Leveraged', DATA_MISSING: 'Needs a check',
+};
 
 /** Where this asset stands for this person, in this country, in one line. */
-function status(pack: Pack, p: ReturnType<typeof useDemo>['s']['profile'], id: AssetId): { ok: boolean; label: string; detail: string } {
+function status(pack: Pack, p: ReturnType<typeof useDemo>['s']['profile'], id: AssetId): { ok: boolean; label: string; short: string; detail: string } {
   const d = checkLine(pack, p, id, 0).determination;
-  if (d.outcome === 'ALLOW') return { ok: true, label: 'Available', detail: 'On the Approved List here, and unlocked for you.' };
+  if (d.outcome === 'ALLOW') return { ok: true, label: 'Available', short: 'Available', detail: 'On the Approved List here, and unlocked for you.' };
   const f = d.findings[0];
-  return { ok: false, label: f.reason.title, detail: f.reason.plain_english };
+  return { ok: false, label: f.reason.title, short: SHORT[f.reason_code] ?? f.reason.title, detail: f.reason.plain_english };
 }
 
 function WorstCard({ lines }: { lines: Line[] }) {
@@ -102,7 +113,7 @@ function AssetRow({ id }: { id: AssetId }) {
   const { s, set, go, pack } = useDemo();
   const { price } = useMoney();
   const a = ASSETS[id];
-  const st = pack ? status(pack, s.profile, id) : { ok: false, label: 'No rules here', detail: '' };
+  const st = pack ? status(pack, s.profile, id) : { ok: false, label: 'No rules here', short: 'No rules here', detail: '' };
   const live = useSyncExternalStore(subscribeLivePrices, getLivePrices, getLivePrices).prices[id];
   const ch = live?.change24h ?? yearChangePct(id);
   return (
@@ -111,7 +122,7 @@ function AssetRow({ id }: { id: AssetId }) {
       <Coin asset={id} />
       <span>
         <b>{a.name}</b> <span className="tiny muted">{a.ticker}{a.rank ? ` · #${a.rank}` : ''}</span><br />
-        <span className={`pill ${st.ok ? 'allow' : ''}`} style={{ marginTop: 4 }}>{st.ok ? '✓ Available' : st.label}</span>
+        <span className={`pill ${st.ok ? 'allow' : ''}`} style={{ marginTop: 4 }} title={st.ok ? undefined : st.label}>{st.ok ? '✓ Available' : st.short}</span>
       </span>
       <span style={{ textAlign: 'right' }}>
         <span className="num small" style={{ fontWeight: 600 }}>{price(live ? live.gbp * 100 : pricePence(id, LAST_WEEK))}</span><br />
@@ -170,7 +181,16 @@ export function AssetDetail() {
         <div className="small muted">
           {live ? <>Live · {pct(live.change24h ?? 0)} today · </> : null}{pct(yearChangePct(id), 0)} over the last year
         </div>
-        <Spark values={series} stroke={a.colour} marks={[s.week]} />
+        <div className="between" style={{ marginTop: 10 }}>
+          <span className="tiny muted">Last 12 months{s.week < LAST_WEEK ? ' · dotted line: demo date' : ''}</span>
+          <ModeSwitch mode={s.chartModes.asset} onChange={(m) => set((x) => ({ chartModes: { ...x.chartModes, asset: m } }))} currency={s.currency} />
+        </div>
+        <LineChart
+          mode={s.chartModes.asset} currency={s.currency} dates={series.map((_, w) => weekDate(w))} marker={s.week}
+          readoutTitle={s.chartModes.asset === 'pct' ? `change since ${fmtWeek(0)}` : 'price'}
+          series={[{ label: a.name, colour: a.colour, bold: true,
+            values: s.chartModes.asset === 'pct' ? series.map((p) => (p / series[0] - 1) * 100) : series.map((p) => p * 100) }]}
+        />
 
         {st && (
           <div className={`verdict ${st.ok ? 'allow' : 'notyet'} small`} style={{ padding: 12, marginTop: 8 }}>
@@ -335,7 +355,7 @@ export function Build() {
                 <Coin asset={id} />
                 <span>
                   <b>{a.name}</b> <span className="tiny muted">{a.ticker}</span><br />
-                  {f ? <span className={`pill ${f.reason_code === 'WEIGHT_CAP' && w > 0 ? 'block' : ''}`} style={{ marginTop: 4 }}>{f.reason.title}</span>
+                  {f ? <span className={`pill ${f.reason_code === 'WEIGHT_CAP' && w > 0 ? 'block' : ''}`} style={{ marginTop: 4 }} title={f.reason.title}>{SHORT[f.reason_code] ?? f.reason.title}</span>
                      : w > 0 ? <span className="pill allow" style={{ marginTop: 4 }}>✓ Approved</span>
                      : <span className="tiny muted">{a.one_liner}</span>}
                 </span>

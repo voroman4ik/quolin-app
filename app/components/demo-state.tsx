@@ -11,6 +11,7 @@ import { getRates, subscribeFx, type Rates } from '@/lib/fx';
 import { activePack, packVersions, record, subscribe, type LedgerBody } from '@/lib/ledger';
 import { fmtWeek, getHistory, subscribeHistory, type Shock } from '@/lib/market';
 import type { Period } from '@/lib/backtest';
+import type { ChartMode } from './LineChart';
 import type { Jurisdiction } from '@/lib/packs';
 import { buyLines, sellPro, summarise, valueAt, type Line, type Summary, type Txn } from '@/lib/portfolio';
 
@@ -75,6 +76,8 @@ export interface DemoState {
   backtest: { name: string; lines: Line[]; from: Screen } | null;
   btPeriod: Period;
   btCompare: string[];
+  /** £ or % on each chart. */
+  chartModes: { portfolio: ChartMode; asset: ChartMode; backtest: ChartMode };
 }
 
 export const INITIAL: DemoState = {
@@ -84,6 +87,7 @@ export const INITIAL: DemoState = {
   plan: null, coolingOffDone: false, heldBuyPence: 0, week: 0, shocks: [], txns: [], nextId: 1,
   limitReached: false, pendingSell: null, transfers: [], knownAddresses: [], beneficiary: '', toast: null,
   backtest: null, btPeriod: '1Y', btCompare: ['SPX', 'CASH'],
+  chartModes: { portfolio: 'money', asset: 'money', backtest: 'pct' },
 };
 
 const STATE_KEY = 'quolin.demo.v2';
@@ -134,7 +138,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       const raw = localStorage.getItem(STATE_KEY);
       if (raw) {
         const saved = JSON.parse(raw) as Partial<DemoState>;
-        setState({ ...INITIAL, ...saved, profile: { ...EMPTY_PROFILE, ...(saved.profile ?? {}) }, toast: null });
+        setState({ ...INITIAL, ...saved, profile: { ...EMPTY_PROFILE, ...(saved.profile ?? {}) }, chartModes: { ...INITIAL.chartModes, ...(saved.chartModes ?? {}) }, toast: null });
       }
     } catch {
       /* fresh start */

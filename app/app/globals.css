@@ -248,7 +248,7 @@ p { margin: 0 0 10px; }
 
 .asset-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
 .asset-row:first-child { border-top: 0; }
-.asset-row .pill { white-space: normal; max-width: 100%; }
+.asset-row .pill { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
 .coin { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: var(--paper); flex: none; display: block; }
 
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13.5px; }
@@ -325,8 +325,6 @@ pre.json { background: var(--ink); color: #dbe2e7; border-radius: 12px; padding:
 .metrics > div { background: var(--canvas); border-radius: 10px; padding: 7px 8px; }
 .metrics span { display: block; font-size: 11px; color: var(--muted); line-height: 1.2; }
 .metrics b { font-size: 15px; }
-.multi-spark { position: relative; height: 90px; margin-top: 8px; }
-.multi-spark .spark { position: absolute; inset: 0; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 .t.compact td, .t.compact th { padding: 6px 6px; }
 
@@ -361,12 +359,43 @@ pre.json { background: var(--ink); color: #dbe2e7; border-radius: 12px; padding:
 .tag .coin { width: 16px; height: 16px; }
 .tag .dot { margin-right: 0; }
 .compare-list { max-height: 260px; overflow-y: auto; margin-top: 2px; }
-.bt-chart { margin-top: 10px; }
-.bt-tick { font-size: 8.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
-.bt-readout { margin-top: 4px; min-height: 52px; }
 .t.bt td, .t.bt th { padding: 6px 4px; }
 .t.bt th { font-size: 10px; }
 .t.bt { table-layout: fixed; width: 100%; }
 .t.bt th:first-child, .t.bt td.name { width: 34%; }
 .t.bt td.name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .t.bt td:not(.name), .t.bt th:not(:first-child) { text-align: right; }
+
+/* ── Line chart ───────────────────────────────────────────────────────────── */
+.line-chart { margin-top: 6px; }
+.chart-tick { font-size: 8.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.chart-readout { margin-top: 4px; min-height: 40px; }
+.mode-switch button { min-width: 34px; }
+
+/* ── Alignment: fixed circles, centred marks ─────────────────────────────── */
+.num-badge {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center;
+  background: #eceff1; color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.reason .mark, .trace .rule .mark { text-align: center; }
+/* Dots sit on the text's centre line, not below it. */
+.dot { vertical-align: 0.08em; }
+.t td .dot, .tag .dot { flex: none; }
+/* A list inside a card keeps the card's inner padding. */
+.card.list { padding: 4px 16px; }
+.list li.row { gap: 12px; }
+/* The current country: marked by a bar, not a fill, so outcome pills stay readable. */
+table.t.everywhere tr.sel td, table.t.everywhere tbody tr.sel:hover td { background: var(--canvas); }
+.everywhere tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--bronze); padding-left: 8px; }
+.coin { position: relative; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; background: var(--paper); flex: none; vertical-align: middle; }
+.coin::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(15, 25, 34, 0.12); pointer-events: none; }
+.coin img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 50%; }
+.tag .coin { width: 16px !important; height: 16px !important; }
+/* Series markers are circles everywhere (legends, tables, chips), centred on the text. */
+.legend i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.wbar + .legend i { border-radius: 2px; }
+/* Tables: every cell centred on the row, so pills line up with two-line names. */
+table.t td { vertical-align: middle; }
+table.t.compare td, table.t.compare th { vertical-align: top; }
+.nowrap { white-space: nowrap; }
+.pack-head { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }

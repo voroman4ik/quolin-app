@@ -6,10 +6,11 @@ import { basketIndex } from '@/lib/backtest';
 import { homeCurrency } from '@/lib/decide';
 import { fmtWeek, LAST_WEEK, marketSource, weekDate } from '@/lib/market';
 import { COUNTRIES } from '@/lib/packs';
-import { valueSeries, type Txn } from '@/lib/portfolio';
+import { costSeries, valueSeries, type Txn } from '@/lib/portfolio';
 import { getRates } from '@/lib/fx';
 import { useDemo } from '../demo-state';
-import { Back, Coin, MoneyInput, Spark, depositScheme, useMoney } from '../ui';
+import { Back, Coin, MoneyInput, depositScheme, useMoney } from '../ui';
+import { LineChart, ModeSwitch } from '../LineChart';
 
 /** The demo clock. In the app it reads as time passing; the prices are the real ones. */
 export function TimeBar() {
@@ -62,7 +63,7 @@ function Activity({ txns }: { txns: Txn[] }) {
 }
 
 export function Home() {
-  const { s, go, result, portfolio, pack, requestSellAll, cancelSell, sellNow, buyNow, setPlan, toastClear } = useHomeActions();
+  const { s, set, go, result, portfolio, pack, requestSellAll, cancelSell, sellNow, buyNow, setPlan, toastClear } = useHomeActions();
   const { fmt, friendly } = useMoney();
   const [sheet, setSheet] = useState<null | 'sell' | 'buy' | 'pause'>(null);
   const [pressured, setPressured] = useState<boolean | null>(null);
@@ -70,6 +71,7 @@ export function Home() {
   const plan = s.plan;
 
   const series = useMemo(() => (plan ? valueSeries(s.txns, plan.startWeek, s.week, s.shocks) : []), [plan, s.txns, s.week, s.shocks]);
+  const costs = useMemo(() => (plan ? costSeries(s.txns, plan.startWeek, s.week) : []), [plan, s.txns, s.week]);
   // How far the basket itself is below its high since the plan started: the fall, separate from new money going in.
   const fall = useMemo(() => {
     if (!plan || s.week <= plan.startWeek) return null;
@@ -111,8 +113,24 @@ export function Home() {
           {gain >= 0 ? '+' : '−'}{fmt(Math.abs(gain))} ({pct(portfolio.changeBps)}) on {fmt(portfolio.costPence)} invested
         </div>
         {portfolio.takenOutPence > 0 && <div className="tiny muted">{fmt(portfolio.takenOutPence)} taken out so far{portfolio.realisedPence ? ` (${portfolio.realisedPence >= 0 ? 'gain' : 'loss'} of ${fmt(Math.abs(portfolio.realisedPence))} realised)` : ''}</div>}
-        <Spark values={series.length > 1 ? series : [0, portfolio.valuePence]} stroke={inFall ? 'var(--steel)' : 'var(--bronze)'} />
-        <div className="between tiny muted"><span>{fmtWeek(plan.startWeek)}</span><span>{fmtWeek(s.week)}</span></div>
+        {series.length > 1 ? (
+          <>
+            <div className="between" style={{ marginTop: 8 }}>
+              <span className="tiny muted">{s.chartModes.portfolio === 'pct' ? 'Return on what you’ve put in' : 'Value and money paid in'}</span>
+              <ModeSwitch mode={s.chartModes.portfolio} onChange={(m) => set((x) => ({ chartModes: { ...x.chartModes, portfolio: m } }))} currency={s.currency} />
+            </div>
+            <LineChart
+              mode={s.chartModes.portfolio} currency={s.currency} height={150}
+              dates={series.map((_, i) => weekDate(plan.startWeek + i))}
+              series={s.chartModes.portfolio === 'pct'
+                ? [{ label: 'Return', colour: inFall ? 'var(--steel)' : 'var(--bronze)', bold: true, values: series.map((v, i) => (costs[i] > 0 ? (v / costs[i] - 1) * 100 : 0)) }]
+                : [
+                  { label: 'Value', colour: inFall ? 'var(--steel)' : 'var(--bronze)', bold: true, values: series },
+                  { label: 'Paid in', colour: 'var(--muted)', dashed: true, values: costs },
+                ]}
+            />
+          </>
+        ) : <p className="tiny muted" style={{ marginTop: 8 }}>The chart starts after your first week.</p>}
 
         {s.toast && <div className="verdict allow small" style={{ padding: 10, marginTop: 8 }} onClick={toastClear}>{s.toast}</div>}
 
