@@ -1,14 +1,14 @@
 'use client';
 
-import { useMemo } from 'react';
-import { ASSETS } from '@/lib/catalog';
+import { useMemo, useState } from 'react';
+import { ASSET_IDS, ASSETS, CATEGORY_LABEL } from '@/lib/catalog';
 import { PERIODS, periodAvailable, runBacktest, type Metrics, type Period } from '@/lib/backtest';
 import { fmtDate, getHistory } from '@/lib/market';
 import { useDemo, type Line } from '../demo-state';
-import { Back, MoneyInput, Spark, useMoney } from '../ui';
+import { Back, Coin, MoneyInput, Search, Spark, matches, useMoney } from '../ui';
 
-const COLOURS = ['var(--bronze)', '#2C5F8A', '#2F6B54', '#7A5AF8', '#C23631'];
-const MAX_COMPARE = 4;
+const COLOURS = ['var(--bronze)', '#2C5F8A', '#2F6B54', '#7A5AF8', '#C23631', '#0E7490', '#6B7280'];
+const MAX_COMPARE = 6;
 const pct = (v: number, d = 1) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(d)}%`;
 
 /** Opens the backtest for a basket or an asset. */
@@ -46,6 +46,7 @@ function Chart({ series, colours }: { series: number[][]; colours: string[] }) {
 export function BacktestScreen() {
   const { s, set, go } = useDemo();
   const { fmt } = useMoney();
+  const [q, setQ] = useState('');
   const bt = s.backtest;
   const h = getHistory();
   const ids = bt?.lines.map((l) => l.asset as string) ?? [];
@@ -57,18 +58,27 @@ export function BacktestScreen() {
   );
   if (!bt) return null;
 
-  const groups = new Map<string, { id: string; label: string }[]>();
-  for (const [id, b] of Object.entries(h.benchmarks)) groups.set(b.group, [...(groups.get(b.group) ?? []), { id, label: b.label }]);
-  // Crypto to compare against: the assets that aren't already the whole basket.
-  const crypto = (['BTC', 'ETH', 'SOL', 'XRP'] as const).filter((a) => !(ids.length === 1 && ids[0] === a))
-    .map((a) => ({ id: a, label: ASSETS[a].name }));
-  groups.set('Crypto', crypto);
-
+  // Everything there's real history for: the benchmarks, then every asset Quolin shows,
+  // except a basket's only asset (comparing Bitcoin with Bitcoin says nothing).
+  const options: { id: string; label: string; group: string; asset?: boolean }[] = [
+    ...Object.entries(h.benchmarks).map(([id, b]) => ({ id, label: b.label, group: b.group })),
+    ...ASSET_IDS.filter((a) => !(ids.length === 1 && ids[0] === a) && h.series[a])
+      .map((a) => ({ id: a, label: ASSETS[a].name, group: `Crypto and tokenised · ${CATEGORY_LABEL[ASSETS[a].category]}`, asset: true })),
+  ];
+  const labelOf = (id: string) => options.find((o) => o.id === id)?.label ?? id;
+  const shown = options.filter((o) => matches(q, o.label, o.id, o.group));
+  const groups = new Map<string, typeof options>();
+  for (const o of shown) {
+    const g = o.asset ? 'Crypto and tokenised' : o.group;
+    groups.set(g, [...(groups.get(g) ?? []), o]);
+  }
+  // Never stuck: when the list is full, a new pick replaces the oldest one.
   const toggle = (id: string) => set((x) => ({
-    btCompare: x.btCompare.includes(id) ? x.btCompare.filter((c) => c !== id) : x.btCompare.length >= MAX_COMPARE ? x.btCompare : [...x.btCompare, id],
+    btCompare: x.btCompare.includes(id) ? x.btCompare.filter((c) => c !== id)
+      : x.btCompare.length >= MAX_COMPARE ? [...x.btCompare.slice(1), id] : [...x.btCompare, id],
   }));
   const rows: { label: string; m: Metrics; colour: string; plan: { paidInPence: number; finalPence: number } }[] = result
-    ? [result.basket, ...result.comparisons].map((it, i) => ({ label: it.label, m: it.metrics, colour: COLOURS[i], plan: it.plan }))
+    ? [result.basket, ...result.comparisons].map((it, i) => ({ label: it.label, m: it.metrics, colour: i === 0 ? COLOURS[0] : COLOURS[1 + s.btCompare.indexOf(it.id)], plan: it.plan }))
     : [];
   const longEnough = rows[0]?.m.years >= 1;
   const youngest = ids.map((id) => ({ id, since: h.starts[id] })).sort((a, b) => (a.since < b.since ? 1 : -1))[0];
@@ -92,9 +102,46 @@ export function BacktestScreen() {
         <p className="tiny muted" style={{ margin: '6px 0 0' }}>Longer periods need history for every asset; {ASSETS[youngest.id as keyof typeof ASSETS]?.name ?? youngest.id} only goes back to {fmtDate(youngest.since)}.</p>
       )}
 
+      <div className="card">
+        <div className="between"><div className="eyebrow">Compare with</div><span className="tiny muted">{s.btCompare.length} of {MAX_COMPARE}</span></div>
+        <div className="tags" style={{ marginTop: 8 }}>
+          {s.btCompare.map((id, k) => (
+            <button key={id} className="tag" aria-pressed onClick={() => toggle(id)} aria-label={`Remove ${labelOf(id)}`}>
+              <i className="dot" style={{ background: COLOURS[k + 1] }} />{labelOf(id)} ×
+            </button>
+          ))}
+          {s.btCompare.length === 0 && <span className="small muted">Nothing yet. Pick from the list below.</span>}
+        </div>
+        <Search value={q} onChange={setQ} placeholder="Search shares, funds, gold, coins…" />
+        <div className="compare-list">
+          {[...groups.entries()].map(([g, items]) => (
+            <div key={g} style={{ marginTop: 10 }}>
+              <div className="tiny muted" style={{ marginBottom: 4 }}>{g}</div>
+              <div className="tags">
+                {items.map((it) => {
+                  const on = s.btCompare.includes(it.id);
+                  return (
+                    <button key={it.id} className="tag" aria-pressed={on} onClick={() => toggle(it.id)}>
+                      {it.asset && <Coin asset={it.id as (typeof ASSET_IDS)[number]} size={16} />}{on ? '✓ ' : ''}{it.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {shown.length === 0 && <p className="small muted" style={{ margin: '8px 0 0' }}>Nothing matches “{q}”.</p>}
+        </div>
+        <p className="tiny muted" style={{ margin: '8px 0 0' }}>Tap to add or remove. When {MAX_COMPARE} are chosen, a new pick replaces the oldest.</p>
+        {result && result.skipped.length > 0 && (
+          <p className="tiny muted" style={{ margin: '6px 0 0' }}>
+            Not enough history for this period: {result.skipped.map((x) => `${x.label} (from ${fmtDate(x.since)})`).join(', ')}.
+          </p>
+        )}
+      </div>
+
       {result && (
         <>
-          <Chart series={rows.map((_, i) => (i === 0 ? result.basket : result.comparisons[i - 1]).index)} colours={COLOURS} />
+          <Chart series={rows.map((_, i) => (i === 0 ? result.basket : result.comparisons[i - 1]).index)} colours={rows.map((r) => r.colour)} />
           <div className="between tiny muted"><span>{fmtDate(result.from)}</span><span>{fmtDate(result.to)}</span></div>
           <div className="legend" style={{ marginTop: 6 }}>
             {rows.map((r) => <span key={r.label}><i style={{ background: r.colour }} />{r.label}</span>)}
@@ -145,30 +192,6 @@ export function BacktestScreen() {
           </div>
         </>
       )}
-
-      <div className="card">
-        <div className="between"><div className="eyebrow">Compare with</div><span className="tiny muted">{s.btCompare.length}/{MAX_COMPARE}</span></div>
-        {[...groups.entries()].map(([g, items]) => (
-          <div key={g} style={{ marginTop: 8 }}>
-            <div className="tiny muted" style={{ marginBottom: 4 }}>{g}</div>
-            <div className="tags">
-              {items.map((it) => {
-                const on = s.btCompare.includes(it.id);
-                return (
-                  <button key={it.id} className="tag" aria-pressed={on} disabled={!on && s.btCompare.length >= MAX_COMPARE} onClick={() => toggle(it.id)}>
-                    {on ? '✓ ' : ''}{it.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-        {result && result.skipped.length > 0 && (
-          <p className="tiny muted" style={{ margin: '8px 0 0' }}>
-            Not shown for this period: {result.skipped.map((x) => `${x.label} (from ${fmtDate(x.since)})`).join(', ')}.
-          </p>
-        )}
-      </div>
 
       <p className="tiny muted" style={{ marginTop: 10 }}>
         {h.source}. {h.live ? `Live, fetched ${new Date(h.fetched_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.` : `Offline snapshot from ${fmtDate(h.fetched_at)}.`}{' '}

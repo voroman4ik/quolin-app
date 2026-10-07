@@ -115,8 +115,14 @@ export interface BacktestResult {
 }
 
 export function benchmarkLabel(id: string): string {
-  return getHistory().benchmarks[id]?.label ?? id;
+  return getHistory().benchmarks[id]?.label ?? ASSET_NAMES[id] ?? id;
 }
+
+const ASSET_NAMES: Record<string, string> = {
+  BTC: 'Bitcoin', ETH: 'Ether', USDT: 'Tether', BNB: 'BNB', XRP: 'XRP', USDC: 'USD Coin', SOL: 'Solana', TRX: 'TRON',
+  ZEC: 'Zcash', HYPE: 'Hyperliquid', DOGE: 'Dogecoin', XMR: 'Monero', LINK: 'Chainlink', ADA: 'Cardano', XLM: 'Stellar',
+  PAXG: 'Tokenised gold', TBILL: 'Tokenised T-bills',
+};
 
 export function runBacktest(
   name: string, lines: Line[], period: Period, compare: string[], initialPence: number, weeklyPence: number,

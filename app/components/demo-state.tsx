@@ -83,7 +83,7 @@ export const INITIAL: DemoState = {
   weeklyPence: 2500, initialPence: 20_000, funding: 'bank_transfer', acks: {},
   plan: null, coolingOffDone: false, heldBuyPence: 0, week: 0, shocks: [], txns: [], nextId: 1,
   limitReached: false, pendingSell: null, transfers: [], knownAddresses: [], beneficiary: '', toast: null,
-  backtest: null, btPeriod: '1Y', btCompare: ['SPX', 'GOLD', 'CASH'],
+  backtest: null, btPeriod: '1Y', btCompare: ['SPX', 'CASH'],
 };
 
 const STATE_KEY = 'quolin.demo.v2';

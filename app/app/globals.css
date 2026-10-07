@@ -357,3 +357,7 @@ pre.json { background: var(--ink); color: #dbe2e7; border-radius: 12px; padding:
 .tag:disabled { opacity: 0.4; cursor: default; }
 .seg button:disabled { opacity: 0.35; cursor: not-allowed; }
 .t.bt th { font-size: 11px; }
+.tag { display: inline-flex; align-items: center; gap: 5px; }
+.tag .coin { width: 16px; height: 16px; }
+.tag .dot { margin-right: 0; }
+.compare-list { max-height: 260px; overflow-y: auto; margin-top: 2px; }
